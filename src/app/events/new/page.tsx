@@ -1,5 +1,5 @@
 import { createEvent } from "@/lib/actions";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import {
   Card,
@@ -36,9 +36,7 @@ export default function NewEventPage() {
                 autoFocus
               />
             </div>
-            <Button type="submit" size="lg">
-              Create event
-            </Button>
+            <SubmitButton size="lg">Create event</SubmitButton>
           </form>
         </CardContent>
       </Card>

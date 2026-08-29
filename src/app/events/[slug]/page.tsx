@@ -7,7 +7,7 @@ import {
   clearSeeds,
   setSeed,
 } from "@/lib/actions";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import {
   Card,
@@ -88,7 +88,7 @@ export default async function EventPage({
                   placeholder="e.g. Grandma, Uncle Joe"
                 />
               </div>
-              <Button type="submit">Add team</Button>
+              <SubmitButton>Add team</SubmitButton>
             </form>
           </CardContent>
         </Card>
@@ -104,14 +104,12 @@ export default async function EventPage({
           <CardContent className="flex flex-col gap-4">
             <div className="flex gap-2">
               <form action={randomizeAction}>
-                <Button type="submit" variant="secondary">
+                <SubmitButton variant="secondary">
                   Randomize seeds
-                </Button>
+                </SubmitButton>
               </form>
               <form action={clearAction}>
-                <Button type="submit" variant="ghost">
-                  Clear seeds
-                </Button>
+                <SubmitButton variant="ghost">Clear seeds</SubmitButton>
               </form>
             </div>
 
@@ -148,9 +146,9 @@ export default async function EventPage({
                           className="w-16 text-center"
                           aria-label={`Seed for ${team.name}`}
                         />
-                        <Button type="submit" variant="outline" size="sm">
+                        <SubmitButton variant="outline" size="sm">
                           Save
-                        </Button>
+                        </SubmitButton>
                       </form>
                       <div className="flex-1">
                         <p className="font-medium text-stone-900">
@@ -163,9 +161,9 @@ export default async function EventPage({
                         )}
                       </div>
                       <form action={deleteTeamAction}>
-                        <Button type="submit" variant="ghost" size="sm">
+                        <SubmitButton variant="ghost" size="sm">
                           Remove
-                        </Button>
+                        </SubmitButton>
                       </form>
                     </li>
                   );
