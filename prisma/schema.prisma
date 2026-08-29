@@ -1,0 +1,119 @@
+// Prisma schema for the family games bracket app.
+//
+// Core idea: an Event has many Teams and many Activities.
+// Each Activity picks a `format` — that format decides which
+// related records get used (Matches for brackets, Categories +
+// Scores for weighted judging). This lets us add new game types
+// later without changing the Event/Team model.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum ActivityFormat {
+  ELIMINATION // single-elimination bracket with byes
+  ROUND_ROBIN // everyone plays everyone, ranked by wins
+  WEIGHTED_SCORE // judged/scored categories, e.g. karaoke
+}
+
+model Event {
+  id         String     @id @default(cuid())
+  name       String
+  slug       String     @unique // used in shareable/presenter URLs
+  createdAt  DateTime   @default(now())
+  teams      Team[]
+  activities Activity[]
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  members   String? // free-text list of names, kept simple on purpose
+  seed      Int? // manual seed; null means "randomize me"
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId   String
+  createdAt DateTime @default(now())
+
+  matchesAsA Match[] @relation("MatchTeamA")
+  matchesAsB Match[] @relation("MatchTeamB")
+  matchesWon Match[] @relation("MatchWinner")
+  scores     Score[]
+
+  @@index([eventId])
+}
+
+model Activity {
+  id        String         @id @default(cuid())
+  name      String // e.g. "Badminton", "Karaoke"
+  format    ActivityFormat
+  event     Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId   String
+  createdAt DateTime       @default(now())
+
+  // used by ELIMINATION / ROUND_ROBIN
+  matches Match[]
+
+  // used by WEIGHTED_SCORE
+  categories Category[]
+
+  @@index([eventId])
+}
+
+// --- Elimination / round-robin ---
+
+model Match {
+  id         String   @id @default(cuid())
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activityId String
+
+  round    Int // 1 = first round, 2 = quarterfinal-of-that-bracket, etc.
+  position Int // slot within the round, left to right, 0-indexed
+
+  teamA   Team?   @relation("MatchTeamA", fields: [teamAId], references: [id])
+  teamAId String?
+  teamB   Team?   @relation("MatchTeamB", fields: [teamBId], references: [id])
+  teamBId String?
+
+  scoreA Int?
+  scoreB Int?
+
+  isBye    Boolean @default(false) // true when teamA advances automatically
+  winner   Team?   @relation("MatchWinner", fields: [winnerId], references: [id])
+  winnerId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([activityId, round])
+}
+
+// --- Weighted scoring (karaoke-style) ---
+
+model Category {
+  id         String   @id @default(cuid())
+  name       String // e.g. "Vocals", "Stage presence"
+  weight     Float    @default(1) // multiplier applied to scores in this category
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activityId String
+  scores     Score[]
+
+  @@index([activityId])
+}
+
+model Score {
+  id         String   @id @default(cuid())
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId     String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  categoryId String
+  value      Float // raw score given, before weight is applied
+  createdAt  DateTime @default(now())
+
+  @@unique([teamId, categoryId])
+}
