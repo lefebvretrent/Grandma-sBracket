@@ -29,12 +29,13 @@ enum MatchBracket {
 }
 
 model Event {
-  id         String     @id @default(cuid())
-  name       String
-  slug       String     @unique // used in shareable/presenter URLs
-  createdAt  DateTime   @default(now())
-  teams      Team[]
-  activities Activity[]
+  id               String     @id @default(cuid())
+  name             String
+  slug             String     @unique // used in shareable/presenter URLs
+  standingsVisible Boolean    @default(true) // organizer can hide the leaderboard during play
+  createdAt        DateTime   @default(now())
+  teams            Team[]
+  activities       Activity[]
 }
 
 model Team {
@@ -65,10 +66,26 @@ model Activity {
   // used by ELIMINATION / ROUND_ROBIN
   matches Match[]
 
+  // how many points 1st/2nd/3rd place earn toward the overall standings
+  placementPoints PlacementPoint[]
+
   // used by WEIGHTED_SCORE
   categories Category[]
 
   @@index([eventId])
+}
+
+// How many overall-standings points a placement in this activity is
+// worth, e.g. 1st = 3pts, 2nd = 2pts, 3rd = 1pt. Editable per activity
+// since not every game should count the same.
+model PlacementPoint {
+  id         String   @id @default(cuid())
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activityId String
+  placement  Int // 1 = first place, 2 = second, 3 = third
+  points     Float
+
+  @@unique([activityId, placement])
 }
 
 // --- Elimination (double-elimination: winners + losers + grand final) ---

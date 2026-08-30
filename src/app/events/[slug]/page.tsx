@@ -46,14 +46,22 @@ export default async function EventPage({
   return (
     <main className="min-h-screen bg-stone-50 p-6">
       <div className="max-w-2xl mx-auto flex flex-col gap-6">
-        <div>
-          <h1 className="text-2xl font-medium text-stone-900">
-            {event.name}
-          </h1>
-          <p className="text-sm text-stone-500">
-            {event.teams.length} team{event.teams.length === 1 ? "" : "s"}{" "}
-            added
-          </p>
+	  <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-medium text-stone-900">
+              {event.name}
+            </h1>
+            <p className="text-sm text-stone-500">
+              {event.teams.length} team{event.teams.length === 1 ? "" : "s"}{" "}
+              added
+            </p>
+          </div>
+          <Link
+            href={`/events/${event.slug}/standings`}
+            className="text-sm font-medium text-amber-700 hover:text-amber-800"
+          >
+            Overall standings →
+          </Link>
         </div>
 
         <Card>

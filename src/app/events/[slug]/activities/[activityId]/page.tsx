@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { generateBracket } from "@/lib/actions";
+import { generateBracket, setPlacementPoints } from "@/lib/actions";
+import { computeEliminationPlacements, placementLabel } from "@/lib/standings";
 import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { MatchCard } from "@/components/bracket/match-card";
+import { Input } from "@/components/ui/input";
 import {
   Card,
   CardHeader,
@@ -85,6 +87,7 @@ export default async function ActivityPage({
     where: { id: activityId },
     include: {
       event: { include: { teams: true } },
+      placementPoints: { orderBy: { placement: "asc" } },
       matches: {
         orderBy: [{ round: "asc" }, { position: "asc" }],
         include: { teamA: true, teamB: true },
@@ -107,13 +110,22 @@ export default async function ActivityPage({
   const wbRounds = groupByRound(wbMatches);
   const lbRounds = groupByRound(lbMatches);
 
-  const champion = gfMatches
-    .slice()
-    .sort((a, b) => b.round - a.round)[0]?.winnerId;
-  const championName = champion
-    ? (gfMatches.find((m) => m.teamAId === champion)?.teamA?.name ??
-      gfMatches.find((m) => m.teamBId === champion)?.teamB?.name)
-    : null;
+  const teamsById = new Map<string, string>(
+    activity.event.teams.map((t) => [t.id, t.name])
+  );
+  const placements = computeEliminationPlacements(activity.matches);
+  const placementRows = Array.from(placements.entries())
+    .map(([teamId, placement]) => ({
+      teamId,
+      placement,
+      teamName: teamsById.get(teamId) ?? "Unknown team",
+    }))
+    .sort((a, b) => a.placement - b.placement);
+
+  const setPointsAction = setPlacementPoints.bind(null, activity.id, slug);
+  const pointsByPlacement = new Map<number, number>(
+    activity.placementPoints.map((p) => [p.placement, p.points])
+  );
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">
@@ -174,12 +186,54 @@ export default async function ActivityPage({
               </CardContent>
             </Card>
 
-            {championName && (
+			<Card>
+              <CardHeader>
+                <CardTitle>Points for this game</CardTitle>
+                <CardDescription>
+                  How many overall-standings points 1st, 2nd, and 3rd place
+                  earn.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form
+                  action={setPointsAction}
+                  className="flex flex-wrap items-end gap-4"
+                >
+                  {[1, 2, 3].map((placement) => (
+                    <div key={placement} className="flex flex-col gap-1.5">
+                      <label
+                        htmlFor={`points-${placement}`}
+                        className="text-sm font-medium text-stone-700"
+                      >
+                        {placementLabel(placement)} place
+                      </label>
+                      <Input
+                        id={`points-${placement}`}
+                        name={`points-${placement}`}
+                        type="number"
+                        step="0.5"
+                        defaultValue={pointsByPlacement.get(placement) ?? 0}
+                        className="w-24 text-center"
+                      />
+                    </div>
+                  ))}
+                  <SubmitButton variant="secondary">Save points</SubmitButton>
+                </form>
+              </CardContent>
+            </Card>
+
+            {placementRows.length > 0 && (
               <Card className="border-amber-200 bg-amber-50">
-                <CardContent className="pt-6">
-                  <p className="text-lg font-medium text-amber-900">
-                    🏆 {championName} is the champion!
-                  </p>
+                <CardContent className="pt-6 flex flex-col gap-1">
+                  {placementRows.map((row) => (
+                    <p key={row.teamId} className="text-amber-900">
+                      <span className="font-medium">
+                        {row.placement === 1 ? "🏆 " : ""}
+                        {placementLabel(row.placement)}:
+                      </span>{" "}
+                      {row.teamName}
+                    </p>
+                  ))}
                 </CardContent>
               </Card>
             )}
