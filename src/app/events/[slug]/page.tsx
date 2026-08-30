@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import {
@@ -6,6 +7,7 @@ import {
   randomizeSeeds,
   clearSeeds,
   setSeed,
+  createActivity,
 } from "@/lib/actions";
 import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +32,7 @@ export default async function EventPage({
     where: { slug },
     include: {
       teams: { orderBy: [{ seed: "asc" }, { createdAt: "asc" }] },
+      activities: { orderBy: { createdAt: "asc" } },
     },
   });
 
@@ -38,6 +41,7 @@ export default async function EventPage({
   const addTeamAction = addTeam.bind(null, event.id, event.slug);
   const randomizeAction = randomizeSeeds.bind(null, event.id, event.slug);
   const clearAction = clearSeeds.bind(null, event.id, event.slug);
+  const createActivityAction = createActivity.bind(null, event.id, event.slug);
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">
@@ -168,6 +172,88 @@ export default async function EventPage({
                     </li>
                   );
                 })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Games</CardTitle>
+            <CardDescription>
+              Add a game like Badminton or Karaoke, then set it up as a
+              bracket or a scored contest.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <form
+              action={createActivityAction}
+              className="flex flex-col gap-3 sm:flex-row sm:items-end"
+            >
+              <div className="flex-1 flex flex-col gap-1.5">
+                <label
+                  htmlFor="activity-name"
+                  className="text-sm font-medium text-stone-700"
+                >
+                  Game name
+                </label>
+                <Input
+                  id="activity-name"
+                  name="name"
+                  placeholder="e.g. Badminton"
+                  required
+                />
+              </div>
+              <div className="flex-1 flex flex-col gap-1.5">
+                <label
+                  htmlFor="activity-format"
+                  className="text-sm font-medium text-stone-700"
+                >
+                  Type
+                </label>
+                <select
+                  id="activity-format"
+                  name="format"
+                  defaultValue="ELIMINATION"
+                  className="h-11 w-full rounded-lg border border-stone-300 bg-white px-3.5 text-base text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                >
+                  <option value="ELIMINATION">Elimination bracket</option>
+                  <option value="ROUND_ROBIN">
+                    Round robin (coming soon)
+                  </option>
+                  <option value="WEIGHTED_SCORE">
+                    Judged scoring (coming soon)
+                  </option>
+                </select>
+              </div>
+              <SubmitButton>Add game</SubmitButton>
+            </form>
+
+            {event.activities.length === 0 ? (
+              <p className="text-sm text-stone-500">
+                No games yet, add your first one above.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {event.activities.map((activity) => (
+                  <li key={activity.id}>
+                    <Link
+                      href={`/events/${event.slug}/activities/${activity.id}`}
+                      className="flex items-center justify-between rounded-lg border border-stone-200 bg-white p-3 hover:bg-stone-50 transition-colors"
+                    >
+                      <span className="font-medium text-stone-900">
+                        {activity.name}
+                      </span>
+                      <span className="text-xs text-stone-500">
+                        {activity.format === "ELIMINATION" &&
+                          "Elimination bracket"}
+                        {activity.format === "ROUND_ROBIN" && "Round robin"}
+                        {activity.format === "WEIGHTED_SCORE" &&
+                          "Judged scoring"}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
               </ul>
             )}
           </CardContent>

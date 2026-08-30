@@ -17,9 +17,15 @@ datasource db {
 }
 
 enum ActivityFormat {
-  ELIMINATION // single-elimination bracket with byes
+  ELIMINATION // double-elimination bracket: winners bracket, losers bracket, grand final
   ROUND_ROBIN // everyone plays everyone, ranked by wins
   WEIGHTED_SCORE // judged/scored categories, e.g. karaoke
+}
+
+enum MatchBracket {
+  WINNERS
+  LOSERS
+  GRAND_FINAL
 }
 
 model Event {
@@ -65,14 +71,15 @@ model Activity {
   @@index([eventId])
 }
 
-// --- Elimination / round-robin ---
+// --- Elimination (double-elimination: winners + losers + grand final) ---
 
 model Match {
   id         String   @id @default(cuid())
   activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
   activityId String
 
-  round    Int // 1 = first round, 2 = quarterfinal-of-that-bracket, etc.
+  bracket  MatchBracket @default(WINNERS)
+  round    Int // 1-indexed within its bracket (winners, losers, or grand final)
   position Int // slot within the round, left to right, 0-indexed
 
   teamA   Team?   @relation("MatchTeamA", fields: [teamAId], references: [id])
@@ -83,14 +90,22 @@ model Match {
   scoreA Int?
   scoreB Int?
 
-  isBye    Boolean @default(false) // true when teamA advances automatically
+  isBye    Boolean @default(false) // true when whichever team is present advances automatically
   winner   Team?   @relation("MatchWinner", fields: [winnerId], references: [id])
   winnerId String?
+
+  // Where this match's winner/loser go next, set once at bracket
+  // generation time. Plain IDs (no relation) — simplest way to express a
+  // "points forward" graph without Prisma's self-relation ceremony.
+  winnerNextMatchId String?
+  winnerNextSlot    String? // "A" | "B"
+  loserNextMatchId  String?
+  loserNextSlot     String? // "A" | "B"
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([activityId, round])
+  @@index([activityId, bracket, round])
 }
 
 // --- Weighted scoring (karaoke-style) ---

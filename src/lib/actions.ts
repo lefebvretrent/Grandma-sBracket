@@ -2,8 +2,10 @@
 
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/slug";
+import { nextPowerOfTwo, seedOrder } from "@/lib/bracket";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import type { Prisma } from "@prisma/client";
 
 export async function createEvent(formData: FormData) {
   const name = String(formData.get("name") || "").trim();
@@ -68,4 +70,328 @@ export async function setSeed(
 
   await prisma.team.update({ where: { id: teamId }, data: { seed } });
   revalidatePath(`/events/${eventSlug}`);
+}
+
+// --- Activities ---
+
+export async function createActivity(
+  eventId: string,
+  eventSlug: string,
+  formData: FormData
+) {
+  const name = String(formData.get("name") || "").trim();
+  const format = String(formData.get("format") || "ELIMINATION") as
+    | "ELIMINATION"
+    | "ROUND_ROBIN"
+    | "WEIGHTED_SCORE";
+  if (!name) return;
+
+  await prisma.activity.create({ data: { name, format, eventId } });
+  revalidatePath(`/events/${eventSlug}`);
+}
+
+// --- Bracket generation (double elimination) ---
+//
+// Every match records where its winner (and, for winners-bracket matches,
+// its loser) goes next — set once here at generation time. reportScore
+// just follows those pointers, so it doesn't need to re-derive any
+// bracket math.
+//
+// Shape:
+//   Winners bracket (WB): standard bracket, byes only ever occur in
+//     round 1 (to pad a non-power-of-two team count up to size).
+//   Losers bracket (LB): alternates "consolidate" rounds (LB survivors
+//     play each other) and "drop-in" rounds (LB survivors play the
+//     newest batch of WB losers). Starts by pairing up WB round-1
+//     losers; a WB round-1 bye produces no loser, so an LB round-1
+//     match fed by two byes is a dead slot ("void") — we detect this at
+//     generation time and pre-mark the next round as an automatic
+//     advance for whichever real team eventually lands there.
+//   Grand final: WB champion vs LB champion. If the LB champion wins
+//     game 1, both finalists now have exactly one loss, so reportScore
+//     creates a second, winner-take-all match automatically.
+
+export async function generateBracket(activityId: string, eventSlug: string) {
+  const activity = await prisma.activity.findUniqueOrThrow({
+    where: { id: activityId },
+    include: { event: { include: { teams: true } } },
+  });
+
+  const teams = [...activity.event.teams].sort((a, b) => {
+    const seedA = a.seed ?? Number.MAX_SAFE_INTEGER;
+    const seedB = b.seed ?? Number.MAX_SAFE_INTEGER;
+    if (seedA !== seedB) return seedA - seedB;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  });
+
+  if (teams.length < 2) return;
+
+  const bracketSize = nextPowerOfTwo(teams.length);
+  const numWbRounds = Math.log2(bracketSize);
+  const order = seedOrder(bracketSize);
+
+  const seedToTeam = new Map<number, (typeof teams)[number]>();
+  teams.forEach((team, i) => seedToTeam.set(i + 1, team));
+
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.match.deleteMany({ where: { activityId } });
+
+      // ---------------- Winners bracket ----------------
+      type WbRow = { id: string; isBye: boolean; winnerId: string | null };
+      const wbRounds: WbRow[][] = [];
+
+      const round1: WbRow[] = [];
+      for (let i = 0; i < bracketSize / 2; i++) {
+        const seedA = order[i * 2];
+        const seedB = order[i * 2 + 1];
+        const teamA = seedToTeam.get(seedA) ?? null;
+        const teamB = seedToTeam.get(seedB) ?? null;
+        const isBye = !teamA || !teamB;
+        const winnerId = isBye ? (teamA?.id ?? teamB?.id ?? null) : null;
+
+        const match = await tx.match.create({
+          data: {
+            activityId,
+            bracket: "WINNERS",
+            round: 1,
+            position: i,
+            teamAId: teamA?.id ?? null,
+            teamBId: teamB?.id ?? null,
+            isBye,
+            winnerId,
+          },
+        });
+        round1.push({ id: match.id, isBye, winnerId });
+      }
+      wbRounds.push(round1);
+
+      let prevWb = round1;
+      for (let round = 2; round <= numWbRounds; round++) {
+        const count = bracketSize / Math.pow(2, round);
+        const thisRound: WbRow[] = [];
+        for (let i = 0; i < count; i++) {
+          const feederA = prevWb[i * 2];
+          const feederB = prevWb[i * 2 + 1];
+          const teamAId = feederA.isBye ? feederA.winnerId : null;
+          const teamBId = feederB.isBye ? feederB.winnerId : null;
+
+          const match = await tx.match.create({
+            data: { activityId, bracket: "WINNERS", round, position: i, teamAId, teamBId },
+          });
+          thisRound.push({ id: match.id, isBye: false, winnerId: null });
+        }
+        wbRounds.push(thisRound);
+        prevWb = thisRound;
+      }
+
+      // ---------------- Losers bracket ----------------
+      type LbRow = { id: string; isVoid: boolean };
+      const lbRounds: { type: "consolidate" | "dropin"; rows: LbRow[] }[] = [];
+
+      if (numWbRounds >= 2) {
+        // LB round 1: pairs of WB round-1 losers. A bye produces no
+        // loser, so a pairing of two byes is a dead ("void") slot.
+        const r1Count = bracketSize / 4;
+        const r1: LbRow[] = [];
+        for (let i = 0; i < r1Count; i++) {
+          const phantomA = round1[i * 2].isBye;
+          const phantomB = round1[i * 2 + 1].isBye;
+          const isVoid = phantomA && phantomB;
+          const isBye = phantomA || phantomB; // one real side auto-advances once known
+
+          const match = await tx.match.create({
+            data: { activityId, bracket: "LOSERS", round: 1, position: i, isBye },
+          });
+          r1.push({ id: match.id, isVoid });
+        }
+        lbRounds.push({ type: "consolidate", rows: r1 });
+
+        let prevRows = r1;
+        for (let wbRound = 2; wbRound <= numWbRounds; wbRound++) {
+          // Drop-in round: merges previous LB survivors with this WB
+          // round's losers, matched position-for-position.
+          const rows: LbRow[] = [];
+          for (let i = 0; i < prevRows.length; i++) {
+            const priorVoid = prevRows[i].isVoid;
+            const match = await tx.match.create({
+              data: {
+                activityId,
+                bracket: "LOSERS",
+                round: lbRounds.length + 1,
+                position: i,
+                isBye: priorVoid, // that survivor slot can never fill; auto-advance the WB dropout
+              },
+            });
+            rows.push({ id: match.id, isVoid: false });
+          }
+          lbRounds.push({ type: "dropin", rows });
+          prevRows = rows;
+
+          if (wbRound < numWbRounds) {
+            // Consolidate round: pairs this drop-in round's winners.
+            const cRows: LbRow[] = [];
+            for (let i = 0; i < rows.length / 2; i++) {
+              const match = await tx.match.create({
+                data: { activityId, bracket: "LOSERS", round: lbRounds.length + 1, position: i },
+              });
+              cRows.push({ id: match.id, isVoid: false });
+            }
+            lbRounds.push({ type: "consolidate", rows: cRows });
+            prevRows = cRows;
+          }
+        }
+      }
+
+      // ---------------- Grand final ----------------
+      const grandFinal =
+        numWbRounds >= 2
+          ? await tx.match.create({
+              data: { activityId, bracket: "GRAND_FINAL", round: 1, position: 0 },
+            })
+          : null;
+
+      // ---------------- Wire forward pointers ----------------
+
+      const dropinRounds = lbRounds.filter((r) => r.type === "dropin");
+
+      for (let round = 1; round <= numWbRounds; round++) {
+        const rows = wbRounds[round - 1];
+        const isFinal = round === numWbRounds;
+
+        for (let i = 0; i < rows.length; i++) {
+          const data: Prisma.MatchUpdateInput = {};
+
+          if (isFinal) {
+            if (grandFinal) {
+              data.winnerNextMatchId = grandFinal.id;
+              data.winnerNextSlot = "A"; // WB champion sits in slot A by convention
+            }
+          } else {
+            data.winnerNextMatchId = wbRounds[round][Math.floor(i / 2)].id;
+            data.winnerNextSlot = i % 2 === 0 ? "A" : "B";
+          }
+
+          if (numWbRounds >= 2) {
+            if (round === 1) {
+              const target = lbRounds[0].rows[Math.floor(i / 2)];
+              data.loserNextMatchId = target.id;
+              data.loserNextSlot = i % 2 === 0 ? "A" : "B";
+            } else {
+              const target = dropinRounds[round - 2].rows[i];
+              data.loserNextMatchId = target.id;
+              data.loserNextSlot = "B";
+            }
+          }
+
+          await tx.match.update({ where: { id: rows[i].id }, data });
+        }
+      }
+
+      for (let r = 0; r < lbRounds.length; r++) {
+        const { type, rows } = lbRounds[r];
+        const isLast = r === lbRounds.length - 1;
+
+        for (let i = 0; i < rows.length; i++) {
+          const data: Prisma.MatchUpdateInput = {};
+
+          if (isLast && grandFinal) {
+            data.winnerNextMatchId = grandFinal.id;
+            data.winnerNextSlot = "B"; // LB champion sits in slot B by convention
+          } else if (type === "consolidate") {
+            data.winnerNextMatchId = lbRounds[r + 1].rows[i].id;
+            data.winnerNextSlot = "A";
+          } else {
+            data.winnerNextMatchId = lbRounds[r + 1].rows[Math.floor(i / 2)].id;
+            data.winnerNextSlot = i % 2 === 0 ? "A" : "B";
+          }
+
+          await tx.match.update({ where: { id: rows[i].id }, data });
+        }
+      }
+    },
+    { timeout: 30000 }
+  );
+
+  revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
+}
+
+// Fills one slot of a match. If that match was pre-marked as an
+// automatic-advance (its other slot can never be filled) and now has a
+// team in it, resolve its winner immediately and cascade the same fill
+// into whatever match comes next.
+async function fillSlot(
+  tx: Prisma.TransactionClient,
+  matchId: string,
+  slot: string,
+  teamId: string
+) {
+  const data: Prisma.MatchUpdateInput =
+    slot === "A" ? { teamAId: teamId } : { teamBId: teamId };
+  const updated = await tx.match.update({ where: { id: matchId }, data });
+
+  if (updated.isBye && !updated.winnerId) {
+    const winnerId = updated.teamAId ?? updated.teamBId;
+    if (winnerId) {
+      await tx.match.update({ where: { id: matchId }, data: { winnerId } });
+      if (updated.winnerNextMatchId && updated.winnerNextSlot) {
+        await fillSlot(tx, updated.winnerNextMatchId, updated.winnerNextSlot, winnerId);
+      }
+    }
+  }
+}
+
+export async function reportScore(
+  matchId: string,
+  eventSlug: string,
+  activityId: string,
+  formData: FormData
+) {
+  const scoreA = Number(formData.get("scoreA"));
+  const scoreB = Number(formData.get("scoreB"));
+  if (Number.isNaN(scoreA) || Number.isNaN(scoreB) || scoreA === scoreB) {
+    // Ties aren't supported in elimination play — silently ignore for now.
+    return;
+  }
+
+  const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
+  if (!match.teamAId || !match.teamBId) return;
+
+  const winnerId = scoreA > scoreB ? match.teamAId : match.teamBId;
+  const loserId = scoreA > scoreB ? match.teamBId : match.teamAId;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.match.update({
+      where: { id: matchId },
+      data: { scoreA, scoreB, winnerId },
+    });
+
+    if (match.winnerNextMatchId && match.winnerNextSlot) {
+      await fillSlot(tx, match.winnerNextMatchId, match.winnerNextSlot, winnerId);
+    }
+    if (match.loserNextMatchId && match.loserNextSlot) {
+      await fillSlot(tx, match.loserNextMatchId, match.loserNextSlot, loserId);
+    }
+
+    // Grand final, game 1: if the losers-bracket champion (slot B by
+    // convention) wins, both finalists now have one loss — force a
+    // winner-take-all rematch.
+    if (match.bracket === "GRAND_FINAL" && match.round === 1) {
+      const wbChampionWon = winnerId === match.teamAId;
+      if (!wbChampionWon) {
+        await tx.match.create({
+          data: {
+            activityId,
+            bracket: "GRAND_FINAL",
+            round: 2,
+            position: 0,
+            teamAId: match.teamAId,
+            teamBId: match.teamBId,
+          },
+        });
+      }
+    }
+  });
+
+  revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
 }
