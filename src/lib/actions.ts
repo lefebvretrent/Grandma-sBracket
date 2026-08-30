@@ -326,8 +326,10 @@ async function fillSlot(
   slot: string,
   teamId: string
 ) {
-  const data: Prisma.MatchUpdateInput =
-    slot === "A" ? { teamAId: teamId } : { teamBId: teamId };
+	const data: Prisma.MatchUpdateInput = {
+		teamA: slot === "A" ? { connect: { id: teamId } } : undefined,
+		teamB: slot === "B" ? { connect: { id: teamId } } : undefined,
+	  };
   const updated = await tx.match.update({ where: { id: matchId }, data });
 
   if (updated.isBye && !updated.winnerId) {
