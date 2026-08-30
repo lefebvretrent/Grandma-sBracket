@@ -26,8 +26,25 @@ export function MatchCard({
   const needsScore =
     !match.isBye && match.teamAId && match.teamBId && !match.winnerId;
 
+  if (needsScore) {
+    return (
+      <form
+        action={reportScoreAction}
+        className="w-64 rounded-lg border border-stone-200 bg-white p-4 flex flex-col gap-3"
+      >
+        <div className="flex flex-col divide-y divide-stone-100 rounded-md border border-stone-200 overflow-hidden">
+          <ScoreRow name="scoreA" teamName={match.teamA?.name} />
+          <ScoreRow name="scoreB" teamName={match.teamB?.name} />
+        </div>
+        <SubmitButton size="sm" className="self-end">
+          Save score
+        </SubmitButton>
+      </form>
+    );
+  }
+
   return (
-    <div className="w-56 rounded-lg border border-stone-200 bg-white p-3 flex flex-col gap-2">
+    <div className="w-64 rounded-lg border border-stone-200 bg-white p-4 flex flex-col gap-2">
       <TeamRow
         name={match.teamA?.name}
         score={match.scoreA}
@@ -44,32 +61,33 @@ export function MatchCard({
           Bye — advances automatically
         </p>
       )}
+    </div>
+  );
+}
 
-      {needsScore && (
-        <form
-          action={reportScoreAction}
-          className="flex items-center gap-2 pt-1"
-        >
-          <Input
-            name="scoreA"
-            type="number"
-            placeholder="Score"
-            className="h-9 text-center px-2"
-            aria-label={`${match.teamA?.name} score`}
-            required
-          />
-          <span className="text-sm text-stone-400">–</span>
-          <Input
-            name="scoreB"
-            type="number"
-            placeholder="Score"
-            className="h-9 text-center px-2"
-            aria-label={`${match.teamB?.name} score`}
-            required
-          />
-          <SubmitButton size="sm">Save</SubmitButton>
-        </form>
-      )}
+function ScoreRow({
+  name,
+  teamName,
+}: {
+  name: "scoreA" | "scoreB";
+  teamName?: string | null;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 bg-stone-50 px-3 py-2.5">
+      <span
+        className="text-sm font-medium text-stone-800 truncate"
+        title={teamName ?? ""}
+      >
+        {teamName ?? "TBD"}
+      </span>
+      <Input
+        name={name}
+        type="number"
+        placeholder="0"
+        required
+        className="h-11 w-20 shrink-0 bg-white text-center text-lg font-semibold px-2"
+        aria-label={`${teamName ?? "Team"} score`}
+      />
     </div>
   );
 }
