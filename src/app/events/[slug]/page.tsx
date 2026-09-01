@@ -230,7 +230,7 @@ export default async function EventPage({
                     Round robin (coming soon)
                   </option>
                   <option value="WEIGHTED_SCORE">
-                    Judged scoring (coming soon)
+                    Judged scoring
                   </option>
                 </select>
               </div>

@@ -1,4 +1,5 @@
 import type { Match } from "@prisma/client";
+import { computeWeightedPlacements } from "@/lib/weighted-score";
 
 // Works out 1st/2nd/3rd place for a completed double-elimination
 // bracket. Returns an empty map until the grand final has a winner.
@@ -58,6 +59,11 @@ type ActivityForStandings = {
   id: string;
   format: string;
   matches: Pick<Match, "bracket" | "round" | "teamAId" | "teamBId" | "winnerId">[];
+  categories: {
+    id: string;
+    weight: number;
+    scores: { teamId: string; value: number }[];
+  }[];
   placementPoints: { placement: number; points: number }[];
 };
 
@@ -73,9 +79,27 @@ export function computeStandings(
   teams.forEach((t) => totals.set(t.id, 0));
 
   for (const activity of activities) {
-    if (activity.format !== "ELIMINATION") continue;
+    let placements: Map<string, number>;
 
-    const placements = computeEliminationPlacements(activity.matches);
+    if (activity.format === "ELIMINATION") {
+      placements = computeEliminationPlacements(activity.matches);
+    } else if (activity.format === "WEIGHTED_SCORE") {
+      const flatScores = activity.categories.flatMap((category) =>
+        category.scores.map((s) => ({
+          teamId: s.teamId,
+          categoryId: category.id,
+          value: s.value,
+        }))
+      );
+      placements = computeWeightedPlacements(
+        teams,
+        activity.categories,
+        flatScores
+      );
+    } else {
+      continue; // round robin not supported yet
+    }
+
     const pointsByPlacement = new Map(
       activity.placementPoints.map((p) => [p.placement, p.points])
     );

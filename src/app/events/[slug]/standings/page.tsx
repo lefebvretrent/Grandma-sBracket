@@ -29,6 +29,7 @@ export default async function StandingsPage({
         include: {
           matches: true,
           placementPoints: true,
+          categories: { include: { scores: true } },
         },
       },
     },
@@ -38,8 +39,8 @@ export default async function StandingsPage({
 
   const toggleAction = toggleStandingsVisibility.bind(null, event.id, slug);
   const rows = computeStandings(event.teams, event.activities);
-  const eliminationActivities = event.activities.filter(
-    (a) => a.format === "ELIMINATION"
+  const scorableActivities = event.activities.filter(
+    (a) => a.format === "ELIMINATION" || a.format === "WEIGHTED_SCORE"
   );
 
   return (
@@ -79,8 +80,8 @@ export default async function StandingsPage({
             <CardHeader>
               <CardTitle>Leaderboard</CardTitle>
               <CardDescription>
-                {eliminationActivities.length === 0
-                  ? "Add an elimination game to start earning points."
+                {scorableActivities.length === 0
+                  ? "Add an elimination or judged-scoring game to start earning points."
                   : "Points earned from 1st/2nd/3rd place finishes across every game."}
               </CardDescription>
             </CardHeader>
@@ -95,7 +96,7 @@ export default async function StandingsPage({
                     <tr className="border-b border-stone-200 text-left text-stone-500">
                       <th className="py-2 pr-4 font-medium">#</th>
                       <th className="py-2 pr-4 font-medium">Team</th>
-                      {eliminationActivities.map((a) => (
+                      {scorableActivities.map((a) => (
                         <th
                           key={a.id}
                           className="py-2 pr-4 font-medium text-center"
@@ -129,7 +130,7 @@ export default async function StandingsPage({
                           <td className="py-2 pr-4 font-medium text-stone-900">
                             {row.teamName}
                           </td>
-                          {eliminationActivities.map((a) => (
+                          {scorableActivities.map((a) => (
                             <td
                               key={a.id}
                               className="py-2 pr-4 text-center text-stone-600"

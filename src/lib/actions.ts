@@ -75,78 +75,151 @@ export async function setSeed(
 // --- Activities ---
 
 export async function createActivity(
-	eventId: string,
-	eventSlug: string,
-	formData: FormData
-  ) {
-	const name = String(formData.get("name") || "").trim();
-	const format = String(formData.get("format") || "ELIMINATION") as
-	  | "ELIMINATION"
-	  | "ROUND_ROBIN"
-	  | "WEIGHTED_SCORE";
-	if (!name) return;
-  
-	await prisma.activity.create({
-	  data: {
-		name,
-		format,
-		eventId,
-		// Default 3/2/1 for 1st/2nd/3rd — editable afterward per activity.
-		placementPoints: {
-		  create: [
-			{ placement: 1, points: 3 },
-			{ placement: 2, points: 2 },
-			{ placement: 3, points: 1 },
-		  ],
-		},
-	  },
-	});
-	revalidatePath(`/events/${eventSlug}`);
+  eventId: string,
+  eventSlug: string,
+  formData: FormData
+) {
+  const name = String(formData.get("name") || "").trim();
+  const format = String(formData.get("format") || "ELIMINATION") as
+    | "ELIMINATION"
+    | "ROUND_ROBIN"
+    | "WEIGHTED_SCORE";
+  if (!name) return;
+
+  await prisma.activity.create({
+    data: {
+      name,
+      format,
+      eventId,
+      // Default 3/2/1 for 1st/2nd/3rd — editable afterward per activity.
+      placementPoints: {
+        create: [
+          { placement: 1, points: 3 },
+          { placement: 2, points: 2 },
+          { placement: 3, points: 1 },
+        ],
+      },
+    },
+  });
+  revalidatePath(`/events/${eventSlug}`);
+}
+
+export async function setPlacementPoints(
+  activityId: string,
+  eventSlug: string,
+  formData: FormData
+) {
+  const entries = [1, 2, 3].map((placement) => {
+    const raw = String(formData.get(`points-${placement}`) ?? "0");
+    const points = Number(raw);
+    return { placement, points: Number.isNaN(points) ? 0 : points };
+  });
+
+  await prisma.$transaction(
+    entries.map((entry) =>
+      prisma.placementPoint.upsert({
+        where: {
+          activityId_placement: { activityId, placement: entry.placement },
+        },
+        create: { activityId, placement: entry.placement, points: entry.points },
+        update: { points: entry.points },
+      })
+    )
+  );
+
+  revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
+  revalidatePath(`/events/${eventSlug}/standings`);
+}
+
+// --- Standings ---
+
+export async function toggleStandingsVisibility(
+  eventId: string,
+  eventSlug: string
+) {
+  const event = await prisma.event.findUniqueOrThrow({
+    where: { id: eventId },
+  });
+  await prisma.event.update({
+    where: { id: eventId },
+    data: { standingsVisible: !event.standingsVisible },
+  });
+  revalidatePath(`/events/${eventSlug}`);
+  revalidatePath(`/events/${eventSlug}/standings`);
+}
+
+// --- Weighted (judged) scoring ---
+
+export async function addCategory(
+  activityId: string,
+  eventSlug: string,
+  formData: FormData
+) {
+  const name = String(formData.get("name") || "").trim();
+  const weightRaw = String(formData.get("weight") || "1");
+  const weight = Number(weightRaw);
+  if (!name) return;
+
+  await prisma.category.create({
+    data: { name, weight: Number.isNaN(weight) ? 1 : weight, activityId },
+  });
+  revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
+}
+
+export async function deleteCategory(
+  categoryId: string,
+  eventSlug: string,
+  activityId: string
+) {
+  await prisma.category.delete({ where: { id: categoryId } });
+  revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
+  revalidatePath(`/events/${eventSlug}/standings`);
+}
+
+// One form on the activity page submits every team/category score box
+// at once, named "score-{teamId}-{categoryId}". Blank boxes are left
+// untouched rather than zeroed out, so judges can fill this in over
+// several passes.
+export async function setWeightedScores(
+  activityId: string,
+  eventSlug: string,
+  formData: FormData
+) {
+  const activity = await prisma.activity.findUniqueOrThrow({
+    where: { id: activityId },
+    include: {
+      event: { include: { teams: true } },
+      categories: true,
+    },
+  });
+
+  const upserts = [];
+  for (const team of activity.event.teams) {
+    for (const category of activity.categories) {
+      const raw = formData.get(`score-${team.id}-${category.id}`);
+      if (raw === null || raw === "") continue;
+      const value = Number(raw);
+      if (Number.isNaN(value)) continue;
+
+      upserts.push(
+        prisma.score.upsert({
+          where: {
+            teamId_categoryId: { teamId: team.id, categoryId: category.id },
+          },
+          create: { teamId: team.id, categoryId: category.id, value },
+          update: { value },
+        })
+      );
+    }
   }
-  
-  export async function setPlacementPoints(
-	activityId: string,
-	eventSlug: string,
-	formData: FormData
-  ) {
-	const entries = [1, 2, 3].map((placement) => {
-	  const raw = String(formData.get(`points-${placement}`) ?? "0");
-	  const points = Number(raw);
-	  return { placement, points: Number.isNaN(points) ? 0 : points };
-	});
-  
-	await prisma.$transaction(
-	  entries.map((entry) =>
-		prisma.placementPoint.upsert({
-		  where: {
-			activityId_placement: { activityId, placement: entry.placement },
-		  },
-		  create: { activityId, placement: entry.placement, points: entry.points },
-		  update: { points: entry.points },
-		})
-	  )
-	);
-  
-	revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
-	revalidatePath(`/events/${eventSlug}/standings`);
+
+  if (upserts.length > 0) {
+    await prisma.$transaction(upserts);
   }
-  
-  // --- Standings ---
-  
-  export async function toggleStandingsVisibility(
-	eventId: string,
-	eventSlug: string
-  ) {
-	const event = await prisma.event.findUniqueOrThrow({
-	  where: { id: eventId },
-	});
-	await prisma.event.update({
-	  where: { id: eventId },
-	  data: { standingsVisible: !event.standingsVisible },
-	});
-	revalidatePath(`/events/${eventSlug}`);
-	revalidatePath(`/events/${eventSlug}/standings`);
-  }
+
+  revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
+  revalidatePath(`/events/${eventSlug}/standings`);
+}
 
 // --- Bracket generation (double elimination) ---
 //
@@ -384,10 +457,8 @@ async function fillSlot(
   slot: string,
   teamId: string
 ) {
-	const data: Prisma.MatchUpdateInput = {
-		teamA: slot === "A" ? { connect: { id: teamId } } : undefined,
-		teamB: slot === "B" ? { connect: { id: teamId } } : undefined,
-	  };
+  const data: Prisma.MatchUpdateInput =
+    slot === "A" ? { teamAId: teamId } : { teamBId: teamId };
   const updated = await tx.match.update({ where: { id: matchId }, data });
 
   if (updated.isBye && !updated.winnerId) {
