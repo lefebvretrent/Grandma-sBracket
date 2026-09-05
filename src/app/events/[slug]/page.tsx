@@ -11,6 +11,7 @@ import {
 } from "@/lib/actions";
 import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 import {
   Card,
   CardHeader,
@@ -45,8 +46,9 @@ export default async function EventPage({
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">
+      <RealtimeRefresh tables={["Team", "Activity"]} />
       <div className="max-w-2xl mx-auto flex flex-col gap-6">
-	  <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-medium text-stone-900">
               {event.name}
@@ -56,12 +58,21 @@ export default async function EventPage({
               added
             </p>
           </div>
-          <Link
-            href={`/events/${event.slug}/standings`}
-            className="text-sm font-medium text-amber-700 hover:text-amber-800"
-          >
-            Overall standings →
-          </Link>
+          <div className="flex flex-col items-end gap-1">
+            <Link
+              href={`/events/${event.slug}/standings`}
+              className="text-sm font-medium text-amber-700 hover:text-amber-800"
+            >
+              Overall standings →
+            </Link>
+            <Link
+              href={`/events/${event.slug}/present`}
+              target="_blank"
+              className="text-xs text-stone-400 hover:text-stone-600"
+            >
+              Open presenter view ↗
+            </Link>
+          </div>
         </div>
 
         <Card>
@@ -152,6 +163,7 @@ export default async function EventPage({
                         className="flex items-center gap-2"
                       >
                         <Input
+                          key={team.seed ?? "unseeded"}
                           name="seed"
                           defaultValue={team.seed ?? ""}
                           placeholder="#"
@@ -230,7 +242,7 @@ export default async function EventPage({
                     Round robin (coming soon)
                   </option>
                   <option value="WEIGHTED_SCORE">
-                    Judged scoring
+                    Judged scoring (coming soon)
                   </option>
                 </select>
               </div>

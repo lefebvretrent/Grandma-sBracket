@@ -18,6 +18,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { MatchCard } from "@/components/bracket/match-card";
 import { Input } from "@/components/ui/input";
+import { RealtimeRefresh } from "@/components/realtime-refresh";
 import {
   Card,
   CardHeader,
@@ -176,6 +177,9 @@ export default async function ActivityPage({
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">
+      <RealtimeRefresh
+        tables={["Match", "Category", "Score", "PlacementPoint"]}
+      />
       <div className="max-w-5xl mx-auto flex flex-col gap-8">
         <div>
           <Link

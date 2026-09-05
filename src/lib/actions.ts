@@ -472,21 +472,29 @@ async function fillSlot(
   }
 }
 
+export type ScoreActionState = { error?: string };
+
 export async function reportScore(
   matchId: string,
   eventSlug: string,
   activityId: string,
+  _prevState: ScoreActionState,
   formData: FormData
-) {
+): Promise<ScoreActionState> {
   const scoreA = Number(formData.get("scoreA"));
   const scoreB = Number(formData.get("scoreB"));
-  if (Number.isNaN(scoreA) || Number.isNaN(scoreB) || scoreA === scoreB) {
-    // Ties aren't supported in elimination play — silently ignore for now.
-    return;
+
+  if (Number.isNaN(scoreA) || Number.isNaN(scoreB)) {
+    return { error: "Enter a score for both teams." };
+  }
+  if (scoreA === scoreB) {
+    return { error: "Scores can't be tied — elimination matches need a winner." };
   }
 
   const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
-  if (!match.teamAId || !match.teamBId) return;
+  if (!match.teamAId || !match.teamBId) {
+    return { error: "This match isn't ready for scores yet." };
+  }
 
   const winnerId = scoreA > scoreB ? match.teamAId : match.teamBId;
   const loserId = scoreA > scoreB ? match.teamBId : match.teamAId;
@@ -525,4 +533,5 @@ export async function reportScore(
   });
 
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
+  return {};
 }
