@@ -19,11 +19,13 @@ export function JoinEventForm() {
             Event code
           </label>
           <Input
-            id="code"
-            name="code"
-            placeholder="e.g. summer-games-5zrn"
-            required
-          />
+			id="code"
+			name="code"
+			placeholder="e.g. A7K2F9"
+			className="uppercase tracking-widest"
+			maxLength={20}
+			required
+			/>
         </div>
         <SubmitButton variant="secondary">Join event</SubmitButton>
       </div>

@@ -1,21 +1,28 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { slugify } from "@/lib/slug";
+import { generateJoinCode } from "@/lib/join-code";
 import { nextPowerOfTwo, seedOrder } from "@/lib/bracket";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Prisma } from "@prisma/client";
 
 export async function createEvent(formData: FormData) {
-  const name = String(formData.get("name") || "").trim();
-  if (!name) throw new Error("Event name is required");
-
-  const slug = slugify(name);
-  await prisma.event.create({ data: { name, slug } });
-
-  redirect(`/events/${slug}`);
-}
+	const name = String(formData.get("name") || "").trim();
+	if (!name) throw new Error("Event name is required");
+  
+	let slug = generateJoinCode();
+	// Practically never collides at 6 chars, but cheap to guard anyway.
+	for (let attempt = 0; attempt < 5; attempt++) {
+	  const existing = await prisma.event.findUnique({ where: { slug } });
+	  if (!existing) break;
+	  slug = generateJoinCode();
+	}
+  
+	await prisma.event.create({ data: { name, slug } });
+  
+	redirect(`/events/${slug}`);
+  }
 
 export type JoinEventState = { error?: string };
 
@@ -27,7 +34,7 @@ export async function joinEvent(
   if (!raw) return { error: "Enter an event code." };
 
   // Be forgiving if someone pastes the full link instead of just the code.
-  const slug = raw.split("/").filter(Boolean).pop() ?? raw;
+  const slug = raw.toUpperCase().split("/").filter(Boolean).pop() ?? raw;
 
   const event = await prisma.event.findUnique({ where: { slug } });
   if (!event) {

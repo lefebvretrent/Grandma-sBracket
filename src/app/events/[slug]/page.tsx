@@ -20,6 +20,7 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
+import { EventCodeCard } from "@/components/event-code-card";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,7 @@ export default async function EventPage({
       <RecentEventsTracker slug={event.slug} name={event.name} />
       <div className="max-w-2xl mx-auto flex flex-col gap-6">
         <div className="flex items-center justify-between">
+		
           <div>
             <h1 className="text-2xl font-medium text-stone-900">
               {event.name}
@@ -76,7 +78,7 @@ export default async function EventPage({
             </Link>
           </div>
         </div>
-
+		<EventCodeCard code={event.slug} />
         <Card>
           <CardHeader>
             <CardTitle>Add a team</CardTitle>
