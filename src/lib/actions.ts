@@ -452,25 +452,59 @@ export async function generateBracket(activityId: string, eventSlug: string) {
 // team in it, resolve its winner immediately and cascade the same fill
 // into whatever match comes next.
 async function fillSlot(
-  tx: Prisma.TransactionClient,
-  matchId: string,
-  slot: string,
-  teamId: string
-) {
-  const data: Prisma.MatchUpdateInput =
-    slot === "A" ? { teamAId: teamId } : { teamBId: teamId };
-  const updated = await tx.match.update({ where: { id: matchId }, data });
-
-  if (updated.isBye && !updated.winnerId) {
-    const winnerId = updated.teamAId ?? updated.teamBId;
-    if (winnerId) {
-      await tx.match.update({ where: { id: matchId }, data: { winnerId } });
-      if (updated.winnerNextMatchId && updated.winnerNextSlot) {
-        await fillSlot(tx, updated.winnerNextMatchId, updated.winnerNextSlot, winnerId);
-      }
-    }
+	tx: Prisma.TransactionClient,
+	matchId: string,
+	slot: "A" | "B" | string,
+	teamId: string
+  ) {
+	// Fetch current match state to check if it's a bye
+	const match = await tx.match.findUniqueOrThrow({
+	  where: { id: matchId },
+	  select: {
+		isBye: true,
+		winnerId: true,
+		teamAId: true,
+		teamBId: true,
+		winnerNextMatchId: true,
+		winnerNextSlot: true,
+	  },
+	});
+  
+	// Determine updated team slots
+	const teamAId = slot === "A" ? teamId : match.teamAId;
+	const teamBId = slot === "B" ? teamId : match.teamBId;
+  
+	// Auto-advance winner if this is an unassigned bye match
+	let winnerId = match.winnerId;
+	if (match.isBye && !winnerId) {
+	  winnerId = teamAId ?? teamBId ?? null;
+	}
+  
+	// Single batch update for both slot filling and optional auto-winner assignment
+	const updated = await tx.match.update({
+	  where: { id: matchId },
+	  data: {
+		...(slot === "A" ? { teamAId: teamId } : { teamBId: teamId }),
+		...(winnerId ? { winnerId } : {}),
+	  },
+	});
+  
+	// Recurse into the next bracket match if a winner was assigned
+	if (
+	  winnerId &&
+	  updated.winnerNextMatchId &&
+	  updated.winnerNextSlot
+	) {
+	  await fillSlot(
+		tx,
+		updated.winnerNextMatchId,
+		updated.winnerNextSlot,
+		winnerId
+	  );
+	}
+  
+	return updated;
   }
-}
 
 export type ScoreActionState = { error?: string };
 
