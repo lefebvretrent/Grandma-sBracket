@@ -17,6 +17,26 @@ export async function createEvent(formData: FormData) {
   redirect(`/events/${slug}`);
 }
 
+export type JoinEventState = { error?: string };
+
+export async function joinEvent(
+  _prevState: JoinEventState,
+  formData: FormData
+): Promise<JoinEventState> {
+  const raw = String(formData.get("code") || "").trim();
+  if (!raw) return { error: "Enter an event code." };
+
+  // Be forgiving if someone pastes the full link instead of just the code.
+  const slug = raw.split("/").filter(Boolean).pop() ?? raw;
+
+  const event = await prisma.event.findUnique({ where: { slug } });
+  if (!event) {
+    return { error: "We couldn't find an event with that code." };
+  }
+
+  redirect(`/events/${slug}`);
+}
+
 export async function addTeam(
   eventId: string,
   eventSlug: string,
@@ -452,59 +472,50 @@ export async function generateBracket(activityId: string, eventSlug: string) {
 // team in it, resolve its winner immediately and cascade the same fill
 // into whatever match comes next.
 async function fillSlot(
-	tx: Prisma.TransactionClient,
-	matchId: string,
-	slot: "A" | "B" | string,
-	teamId: string
-  ) {
-	// Fetch current match state to check if it's a bye
-	const match = await tx.match.findUniqueOrThrow({
-	  where: { id: matchId },
-	  select: {
-		isBye: true,
-		winnerId: true,
-		teamAId: true,
-		teamBId: true,
-		winnerNextMatchId: true,
-		winnerNextSlot: true,
-	  },
-	});
-  
-	// Determine updated team slots
-	const teamAId = slot === "A" ? teamId : match.teamAId;
-	const teamBId = slot === "B" ? teamId : match.teamBId;
-  
-	// Auto-advance winner if this is an unassigned bye match
-	let winnerId = match.winnerId;
-	if (match.isBye && !winnerId) {
-	  winnerId = teamAId ?? teamBId ?? null;
-	}
-  
-	// Single batch update for both slot filling and optional auto-winner assignment
-	const updated = await tx.match.update({
-	  where: { id: matchId },
-	  data: {
-		...(slot === "A" ? { teamAId: teamId } : { teamBId: teamId }),
-		...(winnerId ? { winnerId } : {}),
-	  },
-	});
-  
-	// Recurse into the next bracket match if a winner was assigned
-	if (
-	  winnerId &&
-	  updated.winnerNextMatchId &&
-	  updated.winnerNextSlot
-	) {
-	  await fillSlot(
-		tx,
-		updated.winnerNextMatchId,
-		updated.winnerNextSlot,
-		winnerId
-	  );
-	}
-  
-	return updated;
+  tx: Prisma.TransactionClient,
+  matchId: string,
+  slot: "A" | "B" | string,
+  teamId: string
+) {
+  // Fetch current match state to check if it's a bye
+  const match = await tx.match.findUniqueOrThrow({
+    where: { id: matchId },
+    select: {
+      isBye: true,
+      winnerId: true,
+      teamAId: true,
+      teamBId: true,
+      winnerNextMatchId: true,
+      winnerNextSlot: true,
+    },
+  });
+
+  // Determine updated team slots
+  const teamAId = slot === "A" ? teamId : match.teamAId;
+  const teamBId = slot === "B" ? teamId : match.teamBId;
+
+  // Auto-advance winner if this is an unassigned bye match
+  let winnerId = match.winnerId;
+  if (match.isBye && !winnerId) {
+    winnerId = teamAId ?? teamBId ?? null;
   }
+
+  // Single batch update for both slot filling and optional auto-winner assignment
+  const updated = await tx.match.update({
+    where: { id: matchId },
+    data: {
+      ...(slot === "A" ? { teamAId: teamId } : { teamBId: teamId }),
+      ...(winnerId ? { winnerId } : {}),
+    },
+  });
+
+  // Recurse into the next bracket match if a winner was assigned
+  if (winnerId && updated.winnerNextMatchId && updated.winnerNextSlot) {
+    await fillSlot(tx, updated.winnerNextMatchId, updated.winnerNextSlot, winnerId);
+  }
+
+  return updated;
+}
 
 export type ScoreActionState = { error?: string };
 

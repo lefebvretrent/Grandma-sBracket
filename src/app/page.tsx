@@ -1,22 +1,17 @@
 import Link from "next/link";
 import { Trophy } from "lucide-react";
-import { prisma } from "@/lib/prisma";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
+  CardDescription,
 } from "@/components/ui/card";
+import { JoinEventForm } from "@/components/join-event-form";
+import { RecentEventsList } from "@/components/recent-events-list";
 
-export const dynamic = "force-dynamic";
-
-export default async function Home() {
-  const events = await prisma.event.findMany({
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  });
-
+export default function Home() {
   return (
     <main className="min-h-screen bg-stone-50 relative overflow-hidden flex items-center justify-center p-6">
       {/* Faint bracket-line watermark, purely decorative */}
@@ -60,24 +55,19 @@ export default async function Home() {
           </CardContent>
         </Card>
 
-        {events.length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent events</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2">
-              {events.map((event) => (
-                <Link
-                  key={event.id}
-                  href={`/events/${event.slug}`}
-                  className="rounded-lg border border-stone-200 bg-white p-3 hover:bg-stone-50 transition-colors"
-                >
-                  <p className="font-medium text-stone-900">{event.name}</p>
-                </Link>
-              ))}
-            </CardContent>
-          </Card>
-        )}
+        <Card>
+          <CardHeader>
+            <CardTitle>Join an event</CardTitle>
+            <CardDescription>
+              Have an event code from someone else? Enter it here.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <JoinEventForm />
+          </CardContent>
+        </Card>
+
+        <RecentEventsList />
       </div>
     </main>
   );

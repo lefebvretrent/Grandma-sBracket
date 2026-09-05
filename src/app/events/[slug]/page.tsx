@@ -12,6 +12,7 @@ import {
 import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
+import { RecentEventsTracker } from "@/components/recent-events-tracker";
 import {
   Card,
   CardHeader,
@@ -47,6 +48,7 @@ export default async function EventPage({
   return (
     <main className="min-h-screen bg-stone-50 p-6">
       <RealtimeRefresh tables={["Team", "Activity"]} />
+      <RecentEventsTracker slug={event.slug} name={event.name} />
       <div className="max-w-2xl mx-auto flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>
