@@ -31,7 +31,8 @@ enum MatchBracket {
 model Event {
   id               String     @id @default(cuid())
   name             String
-  slug             String     @unique // used in shareable/presenter URLs
+  slug             String     @unique // used in shareable/presenter URLs, i.e. the join code
+  editToken        String     @unique @default(cuid()) // secret; proves organizer/edit rights
   standingsVisible Boolean    @default(true) // organizer can hide the leaderboard during play
   createdAt        DateTime   @default(now())
   teams            Team[]
@@ -75,19 +76,6 @@ model Activity {
   @@index([eventId])
 }
 
-// How many overall-standings points a placement in this activity is
-// worth, e.g. 1st = 3pts, 2nd = 2pts, 3rd = 1pt. Editable per activity
-// since not every game should count the same.
-model PlacementPoint {
-  id         String   @id @default(cuid())
-  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
-  activityId String
-  placement  Int // 1 = first place, 2 = second, 3 = third
-  points     Float
-
-  @@unique([activityId, placement])
-}
-
 // --- Elimination (double-elimination: winners + losers + grand final) ---
 
 model Match {
@@ -123,6 +111,19 @@ model Match {
   updatedAt DateTime @updatedAt
 
   @@index([activityId, bracket, round])
+}
+
+// How many overall-standings points a placement in this activity is
+// worth, e.g. 1st = 3pts, 2nd = 2pts, 3rd = 1pt. Editable per activity
+// since not every game should count the same.
+model PlacementPoint {
+  id         String   @id @default(cuid())
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  activityId String
+  placement  Int // 1 = first place, 2 = second, 3 = third
+  points     Float
+
+  @@unique([activityId, placement])
 }
 
 // --- Weighted scoring (karaoke-style) ---

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { toggleStandingsVisibility } from "@/lib/actions";
+import { canEdit } from "@/lib/permissions";
 import { computeStandings } from "@/lib/standings";
 import { SubmitButton } from "@/components/submit-button";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
@@ -38,6 +39,7 @@ export default async function StandingsPage({
 
   if (!event) notFound();
 
+  const isEditor = await canEdit(slug);
   const toggleAction = toggleStandingsVisibility.bind(null, event.id, slug);
   const rows = computeStandings(event.teams, event.activities);
   const scorableActivities = event.activities.filter(
@@ -62,20 +64,28 @@ export default async function StandingsPage({
               Overall standings
             </h1>
           </div>
-          <form action={toggleAction}>
-            <SubmitButton variant="secondary" size="sm">
-              {event.standingsVisible ? "Hide standings" : "Show standings"}
-            </SubmitButton>
-          </form>
+          {isEditor && (
+            <form action={toggleAction}>
+              <SubmitButton variant="secondary" size="sm">
+                {event.standingsVisible ? "Hide standings" : "Show standings"}
+              </SubmitButton>
+            </form>
+          )}
         </div>
 
         {!event.standingsVisible ? (
           <Card>
             <CardContent className="pt-6">
               <p className="text-sm text-stone-500">
-                Standings are hidden right now — click{" "}
-                <span className="font-medium">Show standings</span> above
-                when you&apos;re ready to reveal the leaderboard.
+                {isEditor ? (
+                  <>
+                    Standings are hidden right now — click{" "}
+                    <span className="font-medium">Show standings</span> above
+                    when you&apos;re ready to reveal the leaderboard.
+                  </>
+                ) : (
+                  "Standings will be revealed by the organizer soon."
+                )}
               </p>
             </CardContent>
           </Card>

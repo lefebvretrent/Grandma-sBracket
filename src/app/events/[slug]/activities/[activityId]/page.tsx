@@ -8,6 +8,7 @@ import {
   deleteCategory,
   setWeightedScores,
 } from "@/lib/actions";
+import { canEdit } from "@/lib/permissions";
 import { computeEliminationPlacements, placementLabel } from "@/lib/standings";
 import {
   computeWeightedResults,
@@ -58,11 +59,13 @@ function BracketColumns({
   label,
   slug,
   activityId,
+  isEditor,
 }: {
   rounds: Map<number, MatchWithTeams[]>;
   label: (round: number, total: number) => string;
   slug: string;
   activityId: string;
+  isEditor: boolean;
 }) {
   const total = rounds.size;
   return (
@@ -79,6 +82,7 @@ function BracketColumns({
                 match={match}
                 eventSlug={slug}
                 activityId={activityId}
+                isEditor={isEditor}
               />
             ))}
           </div>
@@ -112,6 +116,8 @@ export default async function ActivityPage({
   });
 
   if (!activity || activity.event.slug !== slug) notFound();
+
+  const isEditor = await canEdit(slug);
 
   const teams = activity.event.teams;
   const teamCount = teams.length;
@@ -204,7 +210,7 @@ export default async function ActivityPage({
           </Card>
         )}
 
-        {activity.format === "ELIMINATION" && (
+        {activity.format === "ELIMINATION" && isEditor && (
           <Card>
             <CardHeader>
               <CardTitle>Double-elimination bracket</CardTitle>
@@ -235,55 +241,74 @@ export default async function ActivityPage({
           </Card>
         )}
 
+        {activity.format === "ELIMINATION" && !isEditor && !hasMatches && (
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-sm text-stone-500">
+                Waiting for the organizer to generate the bracket.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
         {activity.format === "WEIGHTED_SCORE" && (
           <>
             <Card>
               <CardHeader>
                 <CardTitle>Categories</CardTitle>
-                <CardDescription>
-                  Add a category for each thing being judged. Give it a
-                  higher weight if it should count for more.
-                </CardDescription>
+                {isEditor && (
+                  <CardDescription>
+                    Add a category for each thing being judged. Give it a
+                    higher weight if it should count for more.
+                  </CardDescription>
+                )}
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
-                <form
-                  action={addCategoryAction}
-                  className="flex flex-wrap items-end gap-3"
-                >
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor="category-name"
-                      className="text-sm font-medium text-stone-700"
-                    >
-                      Category name
-                    </label>
-                    <Input
-                      id="category-name"
-                      name="name"
-                      placeholder="e.g. Vocals"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor="category-weight"
-                      className="text-sm font-medium text-stone-700"
-                    >
-                      Weight
-                    </label>
-                    <Input
-                      id="category-weight"
-                      name="weight"
-                      type="number"
-                      step="0.5"
-                      defaultValue="1"
-                      className="w-24 text-center"
-                    />
-                  </div>
-                  <SubmitButton>Add category</SubmitButton>
-                </form>
+                {isEditor && (
+                  <form
+                    action={addCategoryAction}
+                    className="flex flex-wrap items-end gap-3"
+                  >
+                    <div className="flex flex-col gap-1.5">
+                      <label
+                        htmlFor="category-name"
+                        className="text-sm font-medium text-stone-700"
+                      >
+                        Category name
+                      </label>
+                      <Input
+                        id="category-name"
+                        name="name"
+                        placeholder="e.g. Vocals"
+                        required
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <label
+                        htmlFor="category-weight"
+                        className="text-sm font-medium text-stone-700"
+                      >
+                        Weight
+                      </label>
+                      <Input
+                        id="category-weight"
+                        name="weight"
+                        type="number"
+                        step="0.5"
+                        defaultValue="1"
+                        className="w-24 text-center"
+                      />
+                    </div>
+                    <SubmitButton>Add category</SubmitButton>
+                  </form>
+                )}
 
-                {activity.categories.length > 0 && (
+                {activity.categories.length === 0 ? (
+                  <p className="text-sm text-stone-500">
+                    No categories yet
+                    {isEditor ? ", add your first one above." : "."}
+                  </p>
+                ) : (
                   <ul className="flex flex-col gap-2">
                     {activity.categories.map((category) => {
                       const deleteAction = deleteCategory.bind(
@@ -303,11 +328,13 @@ export default async function ActivityPage({
                               (weight ×{category.weight})
                             </span>
                           </span>
-                          <form action={deleteAction}>
-                            <SubmitButton variant="ghost" size="sm">
-                              Remove
-                            </SubmitButton>
-                          </form>
+                          {isEditor && (
+                            <form action={deleteAction}>
+                              <SubmitButton variant="ghost" size="sm">
+                                Remove
+                              </SubmitButton>
+                            </form>
+                          )}
                         </li>
                       );
                     })}
@@ -320,16 +347,71 @@ export default async function ActivityPage({
               <Card>
                 <CardHeader>
                   <CardTitle>Scores</CardTitle>
-                  <CardDescription>
-                    Enter each team&apos;s score per category. Totals update
-                    automatically once you save.
-                  </CardDescription>
+                  {isEditor && (
+                    <CardDescription>
+                      Enter each team&apos;s score per category. Totals
+                      update automatically once you save.
+                    </CardDescription>
+                  )}
                 </CardHeader>
                 <CardContent className="overflow-x-auto">
-                  <form
-                    action={setScoresAction}
-                    className="flex flex-col gap-4"
-                  >
+                  {isEditor ? (
+                    <form
+                      action={setScoresAction}
+                      className="flex flex-col gap-4"
+                    >
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-stone-200 text-left text-stone-500">
+                            <th className="py-2 pr-4 font-medium">Team</th>
+                            {activity.categories.map((category) => (
+                              <th
+                                key={category.id}
+                                className="py-2 px-2 font-medium text-center"
+                              >
+                                {category.name}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {teams.map((team) => (
+                            <tr
+                              key={team.id}
+                              className="border-b border-stone-100 last:border-0"
+                            >
+                              <td className="py-2 pr-4 font-medium text-stone-900">
+                                {team.name}
+                              </td>
+                              {activity.categories.map((category) => {
+                                const existing = category.scores.find(
+                                  (s) => s.teamId === team.id
+                                );
+                                return (
+                                  <td
+                                    key={category.id}
+                                    className="py-2 px-2 text-center"
+                                  >
+                                    <Input
+                                      name={`score-${team.id}-${category.id}`}
+                                      type="number"
+                                      step="0.5"
+                                      defaultValue={existing?.value ?? ""}
+                                      className="w-20 mx-auto text-center"
+                                      aria-label={`${team.name} ${category.name} score`}
+                                    />
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <SubmitButton className="self-end">
+                        Save scores
+                      </SubmitButton>
+                    </form>
+                  ) : (
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-stone-200 text-left text-stone-500">
@@ -360,16 +442,9 @@ export default async function ActivityPage({
                               return (
                                 <td
                                   key={category.id}
-                                  className="py-2 px-2 text-center"
+                                  className="py-2 px-2 text-center text-stone-600"
                                 >
-                                  <Input
-                                    name={`score-${team.id}-${category.id}`}
-                                    type="number"
-                                    step="0.5"
-                                    defaultValue={existing?.value ?? ""}
-                                    className="w-20 mx-auto text-center"
-                                    aria-label={`${team.name} ${category.name} score`}
-                                  />
+                                  {existing?.value ?? "—"}
                                 </td>
                               );
                             })}
@@ -377,10 +452,7 @@ export default async function ActivityPage({
                         ))}
                       </tbody>
                     </table>
-                    <SubmitButton className="self-end">
-                      Save scores
-                    </SubmitButton>
-                  </form>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -415,36 +487,51 @@ export default async function ActivityPage({
           <Card>
             <CardHeader>
               <CardTitle>Points for this game</CardTitle>
-              <CardDescription>
-                How many overall-standings points 1st, 2nd, and 3rd place
-                earn.
-              </CardDescription>
+              {isEditor && (
+                <CardDescription>
+                  How many overall-standings points 1st, 2nd, and 3rd place
+                  earn.
+                </CardDescription>
+              )}
             </CardHeader>
             <CardContent>
-              <form
-                action={setPointsAction}
-                className="flex flex-wrap items-end gap-4"
-              >
-                {[1, 2, 3].map((placement) => (
-                  <div key={placement} className="flex flex-col gap-1.5">
-                    <label
-                      htmlFor={`points-${placement}`}
-                      className="text-sm font-medium text-stone-700"
-                    >
-                      {placementLabel(placement)} place
-                    </label>
-                    <Input
-                      id={`points-${placement}`}
-                      name={`points-${placement}`}
-                      type="number"
-                      step="0.5"
-                      defaultValue={pointsByPlacement.get(placement) ?? 0}
-                      className="w-24 text-center"
-                    />
-                  </div>
-                ))}
-                <SubmitButton variant="secondary">Save points</SubmitButton>
-              </form>
+              {isEditor ? (
+                <form
+                  action={setPointsAction}
+                  className="flex flex-wrap items-end gap-4"
+                >
+                  {[1, 2, 3].map((placement) => (
+                    <div key={placement} className="flex flex-col gap-1.5">
+                      <label
+                        htmlFor={`points-${placement}`}
+                        className="text-sm font-medium text-stone-700"
+                      >
+                        {placementLabel(placement)} place
+                      </label>
+                      <Input
+                        id={`points-${placement}`}
+                        name={`points-${placement}`}
+                        type="number"
+                        step="0.5"
+                        defaultValue={pointsByPlacement.get(placement) ?? 0}
+                        className="w-24 text-center"
+                      />
+                    </div>
+                  ))}
+                  <SubmitButton variant="secondary">Save points</SubmitButton>
+                </form>
+              ) : (
+                <div className="flex flex-wrap gap-6 text-sm text-stone-700">
+                  {[1, 2, 3].map((placement) => (
+                    <p key={placement}>
+                      <span className="font-medium text-stone-900">
+                        {placementLabel(placement)}:
+                      </span>{" "}
+                      {pointsByPlacement.get(placement) ?? 0} pts
+                    </p>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
@@ -476,6 +563,7 @@ export default async function ActivityPage({
                 label={wbRoundLabel}
                 slug={slug}
                 activityId={activity.id}
+                isEditor={isEditor}
               />
             </div>
 
@@ -489,6 +577,7 @@ export default async function ActivityPage({
                   label={lbRoundLabel}
                   slug={slug}
                   activityId={activity.id}
+                  isEditor={isEditor}
                 />
               </div>
             )}
@@ -513,6 +602,7 @@ export default async function ActivityPage({
                         match={match}
                         eventSlug={slug}
                         activityId={activity.id}
+                        isEditor={isEditor}
                       />
                     </div>
                   ))}

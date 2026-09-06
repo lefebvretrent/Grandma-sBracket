@@ -10,15 +10,17 @@ export function MatchCard({
   match,
   eventSlug,
   activityId,
+  isEditor,
 }: {
   match: MatchWithTeams;
   eventSlug: string;
   activityId: string;
+  isEditor: boolean;
 }) {
   const needsScore =
     !match.isBye && match.teamAId && match.teamBId && !match.winnerId;
 
-  if (needsScore) {
+  if (needsScore && isEditor) {
     return (
       <ScoreForm
         matchId={match.id}
@@ -47,6 +49,9 @@ export function MatchCard({
         <p className="text-xs text-stone-400">
           Bye — advances automatically
         </p>
+      )}
+      {needsScore && !isEditor && (
+        <p className="text-xs text-stone-400">Awaiting score</p>
       )}
     </div>
   );

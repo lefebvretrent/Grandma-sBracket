@@ -3,26 +3,28 @@
 import { prisma } from "@/lib/prisma";
 import { generateJoinCode } from "@/lib/join-code";
 import { nextPowerOfTwo, seedOrder } from "@/lib/bracket";
+import { canEdit, grantEditAccess } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Prisma } from "@prisma/client";
 
 export async function createEvent(formData: FormData) {
-	const name = String(formData.get("name") || "").trim();
-	if (!name) throw new Error("Event name is required");
-  
-	let slug = generateJoinCode();
-	// Practically never collides at 6 chars, but cheap to guard anyway.
-	for (let attempt = 0; attempt < 5; attempt++) {
-	  const existing = await prisma.event.findUnique({ where: { slug } });
-	  if (!existing) break;
-	  slug = generateJoinCode();
-	}
-  
-	await prisma.event.create({ data: { name, slug } });
-  
-	redirect(`/events/${slug}`);
+  const name = String(formData.get("name") || "").trim();
+  if (!name) throw new Error("Event name is required");
+
+  let slug = generateJoinCode();
+  // Practically never collides at 6 chars, but cheap to guard anyway.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const existing = await prisma.event.findUnique({ where: { slug } });
+    if (!existing) break;
+    slug = generateJoinCode();
   }
+
+  const event = await prisma.event.create({ data: { name, slug } });
+  await grantEditAccess(slug, event.editToken);
+
+  redirect(`/events/${slug}`);
+}
 
 export type JoinEventState = { error?: string };
 
@@ -33,7 +35,8 @@ export async function joinEvent(
   const raw = String(formData.get("code") || "").trim();
   if (!raw) return { error: "Enter an event code." };
 
-  // Be forgiving if someone pastes the full link instead of just the code.
+  // Be forgiving if someone pastes the full link, types lowercase, or
+  // adds stray spaces.
   const slug = raw.toUpperCase().split("/").filter(Boolean).pop() ?? raw;
 
   const event = await prisma.event.findUnique({ where: { slug } });
@@ -49,6 +52,8 @@ export async function addTeam(
   eventSlug: string,
   formData: FormData
 ) {
+  if (!(await canEdit(eventSlug))) return;
+
   const name = String(formData.get("name") || "").trim();
   const members = String(formData.get("members") || "").trim() || null;
   if (!name) return;
@@ -58,6 +63,8 @@ export async function addTeam(
 }
 
 export async function deleteTeam(teamId: string, eventSlug: string) {
+  if (!(await canEdit(eventSlug))) return;
+
   await prisma.team.delete({ where: { id: teamId } });
   revalidatePath(`/events/${eventSlug}`);
 }
@@ -65,6 +72,8 @@ export async function deleteTeam(teamId: string, eventSlug: string) {
 // Shuffles all teams in the event and assigns seeds 1..N based on the
 // shuffled order. Simple Fisher-Yates so every ordering is equally likely.
 export async function randomizeSeeds(eventId: string, eventSlug: string) {
+  if (!(await canEdit(eventSlug))) return;
+
   const teams = await prisma.team.findMany({ where: { eventId } });
 
   const shuffled = [...teams];
@@ -82,6 +91,8 @@ export async function randomizeSeeds(eventId: string, eventSlug: string) {
 }
 
 export async function clearSeeds(eventId: string, eventSlug: string) {
+  if (!(await canEdit(eventSlug))) return;
+
   await prisma.team.updateMany({ where: { eventId }, data: { seed: null } });
   revalidatePath(`/events/${eventSlug}`);
 }
@@ -91,6 +102,8 @@ export async function setSeed(
   eventSlug: string,
   formData: FormData
 ) {
+  if (!(await canEdit(eventSlug))) return;
+
   const raw = String(formData.get("seed") || "").trim();
   const parsed = raw === "" ? null : Number(raw);
   const seed = parsed !== null && !Number.isNaN(parsed) ? parsed : null;
@@ -106,6 +119,8 @@ export async function createActivity(
   eventSlug: string,
   formData: FormData
 ) {
+  if (!(await canEdit(eventSlug))) return;
+
   const name = String(formData.get("name") || "").trim();
   const format = String(formData.get("format") || "ELIMINATION") as
     | "ELIMINATION"
@@ -136,6 +151,8 @@ export async function setPlacementPoints(
   eventSlug: string,
   formData: FormData
 ) {
+  if (!(await canEdit(eventSlug))) return;
+
   const entries = [1, 2, 3].map((placement) => {
     const raw = String(formData.get(`points-${placement}`) ?? "0");
     const points = Number(raw);
@@ -164,6 +181,8 @@ export async function toggleStandingsVisibility(
   eventId: string,
   eventSlug: string
 ) {
+  if (!(await canEdit(eventSlug))) return;
+
   const event = await prisma.event.findUniqueOrThrow({
     where: { id: eventId },
   });
@@ -182,6 +201,8 @@ export async function addCategory(
   eventSlug: string,
   formData: FormData
 ) {
+  if (!(await canEdit(eventSlug))) return;
+
   const name = String(formData.get("name") || "").trim();
   const weightRaw = String(formData.get("weight") || "1");
   const weight = Number(weightRaw);
@@ -198,6 +219,8 @@ export async function deleteCategory(
   eventSlug: string,
   activityId: string
 ) {
+  if (!(await canEdit(eventSlug))) return;
+
   await prisma.category.delete({ where: { id: categoryId } });
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
   revalidatePath(`/events/${eventSlug}/standings`);
@@ -212,6 +235,8 @@ export async function setWeightedScores(
   eventSlug: string,
   formData: FormData
 ) {
+  if (!(await canEdit(eventSlug))) return;
+
   const activity = await prisma.activity.findUniqueOrThrow({
     where: { id: activityId },
     include: {
@@ -270,6 +295,8 @@ export async function setWeightedScores(
 //     creates a second, winner-take-all match automatically.
 
 export async function generateBracket(activityId: string, eventSlug: string) {
+  if (!(await canEdit(eventSlug))) return;
+
   const activity = await prisma.activity.findUniqueOrThrow({
     where: { id: activityId },
     include: { event: { include: { teams: true } } },
@@ -533,6 +560,10 @@ export async function reportScore(
   _prevState: ScoreActionState,
   formData: FormData
 ): Promise<ScoreActionState> {
+  if (!(await canEdit(eventSlug))) {
+    return { error: "Only the event organizer can enter scores." };
+  }
+
   const scoreA = Number(formData.get("scoreA"));
   const scoreB = Number(formData.get("scoreB"));
 
