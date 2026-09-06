@@ -26,6 +26,13 @@ export async function createEvent(formData: FormData) {
   redirect(`/events/${slug}`);
 }
 
+export async function deleteEvent(eventId: string, eventSlug: string) {
+  if (!(await canEdit(eventSlug))) return;
+
+  await prisma.event.delete({ where: { id: eventId } });
+  redirect("/");
+}
+
 export type JoinEventState = { error?: string };
 
 export async function joinEvent(

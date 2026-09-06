@@ -8,9 +8,11 @@ import {
   clearSeeds,
   setSeed,
   createActivity,
+  deleteEvent,
 } from "@/lib/actions";
 import { canEdit } from "@/lib/permissions";
 import { SubmitButton } from "@/components/submit-button";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { Input } from "@/components/ui/input";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { RecentEventsTracker } from "@/components/recent-events-tracker";
@@ -48,6 +50,7 @@ export default async function EventPage({
   const randomizeAction = randomizeSeeds.bind(null, event.id, event.slug);
   const clearAction = clearSeeds.bind(null, event.id, event.slug);
   const createActivityAction = createActivity.bind(null, event.id, event.slug);
+  const deleteEventAction = deleteEvent.bind(null, event.id, event.slug);
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">
@@ -283,7 +286,7 @@ export default async function EventPage({
                       Round robin (coming soon)
                     </option>
                     <option value="WEIGHTED_SCORE">
-                      Judged scoring (coming soon)
+                      Judged scoring
                     </option>
                   </select>
                 </div>
@@ -320,6 +323,28 @@ export default async function EventPage({
             )}
           </CardContent>
         </Card>
+
+        {isEditor && (
+          <Card className="border-red-200">
+            <CardHeader>
+              <CardTitle>Danger zone</CardTitle>
+              <CardDescription>
+                Permanently deletes this event and everything in it — teams,
+                brackets, scores, all of it. This can&apos;t be undone.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form action={deleteEventAction}>
+                <ConfirmSubmitButton
+                  confirmMessage={`Delete "${event.name}" permanently? This cannot be undone.`}
+                  variant="destructive"
+                >
+                  Delete event
+                </ConfirmSubmitButton>
+              </form>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </main>
   );

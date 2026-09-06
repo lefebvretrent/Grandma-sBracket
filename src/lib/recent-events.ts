@@ -35,3 +35,13 @@ export function trackRecentEvent(slug: string, name: string) {
     // fine to just skip, this is a nice-to-have, not critical.
   }
 }
+
+export function removeRecentEvent(slug: string) {
+  if (typeof window === "undefined") return;
+  const remaining = readAll().filter((e) => e.slug !== slug);
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining));
+  } catch {
+    // ignore — same as above
+  }
+}
