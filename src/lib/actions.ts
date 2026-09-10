@@ -625,3 +625,97 @@ export async function reportScore(
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
   return {};
 }
+
+// Corrects an already-decided match's score. Only allowed while nothing
+// downstream has happened yet — if the winner has already played their
+// next match (or, symmetrically, the loser has already played theirs in
+// the losers bracket, or a grand-final reset match already exists),
+// changing this result would need to unwind everything that followed
+// from it. Rather than attempt that, we block it with a clear message
+// and point back at "regenerate" for anything that far back.
+export async function editScore(
+  matchId: string,
+  eventSlug: string,
+  activityId: string,
+  _prevState: ScoreActionState,
+  formData: FormData
+): Promise<ScoreActionState> {
+  if (!(await canEdit(eventSlug))) {
+    return { error: "Only the event organizer can edit scores." };
+  }
+
+  const scoreA = Number(formData.get("scoreA"));
+  const scoreB = Number(formData.get("scoreB"));
+
+  if (Number.isNaN(scoreA) || Number.isNaN(scoreB)) {
+    return { error: "Enter a score for both teams." };
+  }
+  if (scoreA === scoreB) {
+    return { error: "Scores can't be tied — elimination matches need a winner." };
+  }
+
+  const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
+  if (!match.teamAId || !match.teamBId || !match.winnerId) {
+    return { error: "This match hasn't been played yet." };
+  }
+
+  const newWinnerId = scoreA > scoreB ? match.teamAId : match.teamBId;
+  const newLoserId = scoreA > scoreB ? match.teamBId : match.teamAId;
+
+  const CANT_EDIT =
+    "Can't change this result — it's already affected later matches. Regenerate the bracket if you need to redo further back.";
+
+  if (match.winnerNextMatchId) {
+    const next = await prisma.match.findUnique({
+      where: { id: match.winnerNextMatchId },
+      select: { winnerId: true },
+    });
+    if (next?.winnerId) return { error: CANT_EDIT };
+  }
+  if (match.loserNextMatchId) {
+    const next = await prisma.match.findUnique({
+      where: { id: match.loserNextMatchId },
+      select: { winnerId: true },
+    });
+    if (next?.winnerId) return { error: CANT_EDIT };
+  }
+  if (match.bracket === "GRAND_FINAL" && match.round === 1) {
+    const resetExists = await prisma.match.findFirst({
+      where: { activityId, bracket: "GRAND_FINAL", round: 2 },
+    });
+    if (resetExists) return { error: CANT_EDIT };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.match.update({
+      where: { id: matchId },
+      data: { scoreA, scoreB, winnerId: newWinnerId },
+    });
+
+    if (match.winnerNextMatchId && match.winnerNextSlot) {
+      await fillSlot(tx, match.winnerNextMatchId, match.winnerNextSlot, newWinnerId);
+    }
+    if (match.loserNextMatchId && match.loserNextSlot) {
+      await fillSlot(tx, match.loserNextMatchId, match.loserNextSlot, newLoserId);
+    }
+
+    if (match.bracket === "GRAND_FINAL" && match.round === 1) {
+      const wbChampionWon = newWinnerId === match.teamAId;
+      if (!wbChampionWon) {
+        await tx.match.create({
+          data: {
+            activityId,
+            bracket: "GRAND_FINAL",
+            round: 2,
+            position: 0,
+            teamAId: match.teamAId,
+            teamBId: match.teamBId,
+          },
+        });
+      }
+    }
+  });
+
+  revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
+  return {};
+}

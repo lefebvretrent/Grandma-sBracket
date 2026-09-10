@@ -1,4 +1,6 @@
 import { ScoreForm } from "@/components/bracket/score-form";
+import { EditableMatchResult } from "@/components/bracket/editable-match-result";
+import { TeamRow } from "@/components/bracket/team-row";
 import type { Match, Team } from "@prisma/client";
 
 type MatchWithTeams = Match & {
@@ -19,6 +21,7 @@ export function MatchCard({
 }) {
   const needsScore =
     !match.isBye && match.teamAId && match.teamBId && !match.winnerId;
+  const isDecided = !match.isBye && !!match.winnerId;
 
   if (needsScore && isEditor) {
     return (
@@ -28,6 +31,19 @@ export function MatchCard({
         activityId={activityId}
         teamAName={match.teamA?.name}
         teamBName={match.teamB?.name}
+      />
+    );
+  }
+
+  if (isDecided && isEditor) {
+    return (
+      <EditableMatchResult
+        // Remounts (and so collapses back out of edit mode) once the
+        // scores actually change after a successful save.
+        key={`${match.id}-${match.scoreA}-${match.scoreB}`}
+        match={match}
+        eventSlug={eventSlug}
+        activityId={activityId}
       />
     );
   }
@@ -53,29 +69,6 @@ export function MatchCard({
       {needsScore && !isEditor && (
         <p className="text-xs text-stone-400">Awaiting score</p>
       )}
-    </div>
-  );
-}
-
-function TeamRow({
-  name,
-  score,
-  isWinner,
-}: {
-  name?: string | null;
-  score?: number | null;
-  isWinner: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-center justify-between rounded-md px-2 py-1.5 text-sm ${
-        isWinner
-          ? "bg-amber-50 text-amber-900 font-medium"
-          : "text-stone-700"
-      }`}
-    >
-      <span>{name ?? "TBD"}</span>
-      {score !== null && score !== undefined && <span>{score}</span>}
     </div>
   );
 }
