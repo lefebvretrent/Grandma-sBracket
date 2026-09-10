@@ -436,12 +436,9 @@ export async function generateBracket(activityId: string, eventSlug: string) {
       }
 
       // ---------------- Grand final ----------------
-      const grandFinal =
-        numWbRounds >= 2
-          ? await tx.match.create({
-              data: { activityId, bracket: "GRAND_FINAL", round: 1, position: 0 },
-            })
-          : null;
+      const grandFinal = await tx.match.create({
+        data: { activityId, bracket: "GRAND_FINAL", round: 1, position: 0 },
+      });
 
       // ---------------- Wire forward pointers ----------------
 
@@ -455,25 +452,28 @@ export async function generateBracket(activityId: string, eventSlug: string) {
           const data: Prisma.MatchUpdateInput = {};
 
           if (isFinal) {
-            if (grandFinal) {
-              data.winnerNextMatchId = grandFinal.id;
-              data.winnerNextSlot = "A"; // WB champion sits in slot A by convention
-            }
+            data.winnerNextMatchId = grandFinal.id;
+            data.winnerNextSlot = "A"; // WB champion sits in slot A by convention
           } else {
             data.winnerNextMatchId = wbRounds[round][Math.floor(i / 2)].id;
             data.winnerNextSlot = i % 2 === 0 ? "A" : "B";
           }
 
-          if (numWbRounds >= 2) {
-            if (round === 1) {
-              const target = lbRounds[0].rows[Math.floor(i / 2)];
-              data.loserNextMatchId = target.id;
-              data.loserNextSlot = i % 2 === 0 ? "A" : "B";
-            } else {
-              const target = dropinRounds[round - 2].rows[i];
-              data.loserNextMatchId = target.id;
-              data.loserNextSlot = "B";
-            }
+          if (numWbRounds === 1) {
+            // Only one WB round (also the final) and no losers bracket
+            // at all — the loser goes straight to the grand final as
+            // the "LB champion" by default, with no games needed to
+            // get there.
+            data.loserNextMatchId = grandFinal.id;
+            data.loserNextSlot = "B";
+          } else if (round === 1) {
+            const target = lbRounds[0].rows[Math.floor(i / 2)];
+            data.loserNextMatchId = target.id;
+            data.loserNextSlot = i % 2 === 0 ? "A" : "B";
+          } else {
+            const target = dropinRounds[round - 2].rows[i];
+            data.loserNextMatchId = target.id;
+            data.loserNextSlot = "B";
           }
 
           await tx.match.update({ where: { id: rows[i].id }, data });
@@ -487,7 +487,7 @@ export async function generateBracket(activityId: string, eventSlug: string) {
         for (let i = 0; i < rows.length; i++) {
           const data: Prisma.MatchUpdateInput = {};
 
-          if (isLast && grandFinal) {
+          if (isLast) {
             data.winnerNextMatchId = grandFinal.id;
             data.winnerNextSlot = "B"; // LB champion sits in slot B by convention
           } else if (type === "consolidate") {
