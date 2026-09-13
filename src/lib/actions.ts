@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { generateJoinCode } from "@/lib/join-code";
 import { nextPowerOfTwo, seedOrder } from "@/lib/bracket";
+import { roundRobinSchedule } from "@/lib/round-robin";
 import { canEdit, grantEditAccess } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -172,7 +173,11 @@ export async function setPlacementPoints(
         where: {
           activityId_placement: { activityId, placement: entry.placement },
         },
-        create: { activityId, placement: entry.placement, points: entry.points },
+        create: {
+          activityId,
+          placement: entry.placement,
+          points: entry.points,
+        },
         update: { points: entry.points },
       })
     )
@@ -280,6 +285,51 @@ export async function setWeightedScores(
   revalidatePath(`/events/${eventSlug}/standings`);
 }
 
+// --- Round robin ---
+
+export async function generateRoundRobin(
+  activityId: string,
+  eventSlug: string
+) {
+  if (!(await canEdit(eventSlug))) return;
+
+  const activity = await prisma.activity.findUniqueOrThrow({
+    where: { id: activityId },
+    include: { event: { include: { teams: true } } },
+  });
+
+  const teams = activity.event.teams;
+  if (teams.length < 2) return;
+
+  const schedule = roundRobinSchedule(teams.map((t) => t.id));
+
+  const byRound = new Map<number, typeof schedule>();
+  for (const game of schedule) {
+    if (!byRound.has(game.round)) byRound.set(game.round, []);
+    byRound.get(game.round)!.push(game);
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.match.deleteMany({ where: { activityId } });
+
+    for (const [round, games] of byRound) {
+      for (let i = 0; i < games.length; i++) {
+        await tx.match.create({
+          data: {
+            activityId,
+            round,
+            position: i,
+            teamAId: games[i].teamAId,
+            teamBId: games[i].teamBId,
+          },
+        });
+      }
+    }
+  });
+
+  revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
+}
+
 // --- Bracket generation (double elimination) ---
 //
 // Every match records where its winner (and, for winners-bracket matches,
@@ -297,9 +347,11 @@ export async function setWeightedScores(
 //     match fed by two byes is a dead slot ("void") — we detect this at
 //     generation time and pre-mark the next round as an automatic
 //     advance for whichever real team eventually lands there.
-//   Grand final: WB champion vs LB champion. If the LB champion wins
-//     game 1, both finalists now have exactly one loss, so reportScore
-//     creates a second, winner-take-all match automatically.
+//   Grand final: always created, even with only 2 teams (the single
+//     match's loser goes straight there as the "LB champion" by
+//     default). If the losers-bracket champion wins game 1, both
+//     finalists now have exactly one loss, so reportScore creates a
+//     second, winner-take-all match automatically.
 
 export async function generateBracket(activityId: string, eventSlug: string) {
   if (!(await canEdit(eventSlug))) return;
@@ -369,7 +421,14 @@ export async function generateBracket(activityId: string, eventSlug: string) {
           const teamBId = feederB.isBye ? feederB.winnerId : null;
 
           const match = await tx.match.create({
-            data: { activityId, bracket: "WINNERS", round, position: i, teamAId, teamBId },
+            data: {
+              activityId,
+              bracket: "WINNERS",
+              round,
+              position: i,
+              teamAId,
+              teamBId,
+            },
           });
           thisRound.push({ id: match.id, isBye: false, winnerId: null });
         }
@@ -379,7 +438,8 @@ export async function generateBracket(activityId: string, eventSlug: string) {
 
       // ---------------- Losers bracket ----------------
       type LbRow = { id: string; isVoid: boolean };
-      const lbRounds: { type: "consolidate" | "dropin"; rows: LbRow[] }[] = [];
+      const lbRounds: { type: "consolidate" | "dropin"; rows: LbRow[] }[] =
+        [];
 
       if (numWbRounds >= 2) {
         // LB round 1: pairs of WB round-1 losers. A bye produces no
@@ -393,7 +453,13 @@ export async function generateBracket(activityId: string, eventSlug: string) {
           const isBye = phantomA || phantomB; // one real side auto-advances once known
 
           const match = await tx.match.create({
-            data: { activityId, bracket: "LOSERS", round: 1, position: i, isBye },
+            data: {
+              activityId,
+              bracket: "LOSERS",
+              round: 1,
+              position: i,
+              isBye,
+            },
           });
           r1.push({ id: match.id, isVoid });
         }
@@ -425,7 +491,12 @@ export async function generateBracket(activityId: string, eventSlug: string) {
             const cRows: LbRow[] = [];
             for (let i = 0; i < rows.length / 2; i++) {
               const match = await tx.match.create({
-                data: { activityId, bracket: "LOSERS", round: lbRounds.length + 1, position: i },
+                data: {
+                  activityId,
+                  bracket: "LOSERS",
+                  round: lbRounds.length + 1,
+                  position: i,
+                },
               });
               cRows.push({ id: match.id, isVoid: false });
             }
@@ -494,7 +565,8 @@ export async function generateBracket(activityId: string, eventSlug: string) {
             data.winnerNextMatchId = lbRounds[r + 1].rows[i].id;
             data.winnerNextSlot = "A";
           } else {
-            data.winnerNextMatchId = lbRounds[r + 1].rows[Math.floor(i / 2)].id;
+            data.winnerNextMatchId =
+              lbRounds[r + 1].rows[Math.floor(i / 2)].id;
             data.winnerNextSlot = i % 2 === 0 ? "A" : "B";
           }
 
@@ -518,7 +590,6 @@ async function fillSlot(
   slot: "A" | "B" | string,
   teamId: string
 ) {
-  // Fetch current match state to check if it's a bye
   const match = await tx.match.findUniqueOrThrow({
     where: { id: matchId },
     select: {
@@ -531,17 +602,14 @@ async function fillSlot(
     },
   });
 
-  // Determine updated team slots
   const teamAId = slot === "A" ? teamId : match.teamAId;
   const teamBId = slot === "B" ? teamId : match.teamBId;
 
-  // Auto-advance winner if this is an unassigned bye match
   let winnerId = match.winnerId;
   if (match.isBye && !winnerId) {
     winnerId = teamAId ?? teamBId ?? null;
   }
 
-  // Single batch update for both slot filling and optional auto-winner assignment
   const updated = await tx.match.update({
     where: { id: matchId },
     data: {
@@ -550,9 +618,13 @@ async function fillSlot(
     },
   });
 
-  // Recurse into the next bracket match if a winner was assigned
   if (winnerId && updated.winnerNextMatchId && updated.winnerNextSlot) {
-    await fillSlot(tx, updated.winnerNextMatchId, updated.winnerNextSlot, winnerId);
+    await fillSlot(
+      tx,
+      updated.winnerNextMatchId,
+      updated.winnerNextSlot,
+      winnerId
+    );
   }
 
   return updated;
@@ -578,10 +650,14 @@ export async function reportScore(
     return { error: "Enter a score for both teams." };
   }
   if (scoreA === scoreB) {
-    return { error: "Scores can't be tied — elimination matches need a winner." };
+    return {
+      error: "Scores can't be tied — elimination matches need a winner.",
+    };
   }
 
-  const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
+  const match = await prisma.match.findUniqueOrThrow({
+    where: { id: matchId },
+  });
   if (!match.teamAId || !match.teamBId) {
     return { error: "This match isn't ready for scores yet." };
   }
@@ -596,10 +672,20 @@ export async function reportScore(
     });
 
     if (match.winnerNextMatchId && match.winnerNextSlot) {
-      await fillSlot(tx, match.winnerNextMatchId, match.winnerNextSlot, winnerId);
+      await fillSlot(
+        tx,
+        match.winnerNextMatchId,
+        match.winnerNextSlot,
+        winnerId
+      );
     }
     if (match.loserNextMatchId && match.loserNextSlot) {
-      await fillSlot(tx, match.loserNextMatchId, match.loserNextSlot, loserId);
+      await fillSlot(
+        tx,
+        match.loserNextMatchId,
+        match.loserNextSlot,
+        loserId
+      );
     }
 
     // Grand final, game 1: if the losers-bracket champion (slot B by
@@ -651,10 +737,14 @@ export async function editScore(
     return { error: "Enter a score for both teams." };
   }
   if (scoreA === scoreB) {
-    return { error: "Scores can't be tied — elimination matches need a winner." };
+    return {
+      error: "Scores can't be tied — elimination matches need a winner.",
+    };
   }
 
-  const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } });
+  const match = await prisma.match.findUniqueOrThrow({
+    where: { id: matchId },
+  });
   if (!match.teamAId || !match.teamBId || !match.winnerId) {
     return { error: "This match hasn't been played yet." };
   }
@@ -693,10 +783,20 @@ export async function editScore(
     });
 
     if (match.winnerNextMatchId && match.winnerNextSlot) {
-      await fillSlot(tx, match.winnerNextMatchId, match.winnerNextSlot, newWinnerId);
+      await fillSlot(
+        tx,
+        match.winnerNextMatchId,
+        match.winnerNextSlot,
+        newWinnerId
+      );
     }
     if (match.loserNextMatchId && match.loserNextSlot) {
-      await fillSlot(tx, match.loserNextMatchId, match.loserNextSlot, newLoserId);
+      await fillSlot(
+        tx,
+        match.loserNextMatchId,
+        match.loserNextSlot,
+        newLoserId
+      );
     }
 
     if (match.bracket === "GRAND_FINAL" && match.round === 1) {

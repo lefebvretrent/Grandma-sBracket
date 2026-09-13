@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import {
   generateBracket,
+  generateRoundRobin,
   setPlacementPoints,
   addCategory,
   deleteCategory,
@@ -15,6 +16,11 @@ import {
   computeWeightedPlacements,
   isWeightedScoringComplete,
 } from "@/lib/weighted-score";
+import {
+  computeRoundRobinResults,
+  computeRoundRobinPlacements,
+  isRoundRobinComplete,
+} from "@/lib/round-robin";
 import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { MatchCard } from "@/components/bracket/match-card";
@@ -92,6 +98,46 @@ function BracketColumns({
   );
 }
 
+// Round robin doesn't have bracket "progression" like elimination, so
+// rounds stack vertically with each round's matches wrapping in a row,
+// rather than side-by-side columns implying advancement.
+function RoundRobinRounds({
+  rounds,
+  slug,
+  activityId,
+  isEditor,
+}: {
+  rounds: Map<number, MatchWithTeams[]>;
+  slug: string;
+  activityId: string;
+  isEditor: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      {Array.from(rounds.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([round, matches]) => (
+          <div key={round} className="flex flex-col gap-3">
+            <p className="text-sm font-medium text-stone-500">
+              Round {round}
+            </p>
+            <div className="flex flex-wrap gap-4">
+              {matches.map((match) => (
+                <MatchCard
+                  key={match.id}
+                  match={match}
+                  eventSlug={slug}
+                  activityId={activityId}
+                  isEditor={isEditor}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+    </div>
+  );
+}
+
 export default async function ActivityPage({
   params,
 }: {
@@ -135,6 +181,20 @@ export default async function ActivityPage({
   const wbRounds = groupByRound(wbMatches);
   const lbRounds = groupByRound(lbMatches);
 
+  // --- Round robin data ---
+  const generateRoundRobinAction = generateRoundRobin.bind(
+    null,
+    activity.id,
+    slug
+  );
+  const roundRobinMatches = activity.matches; // ROUND_ROBIN activities only ever have plain matches
+  const roundRobinRounds = groupByRound(roundRobinMatches);
+  const roundRobinResults =
+    activity.format === "ROUND_ROBIN"
+      ? computeRoundRobinResults(teams, roundRobinMatches)
+      : [];
+  const roundRobinComplete = isRoundRobinComplete(roundRobinMatches);
+
   // --- Weighted (judged) scoring data ---
   const addCategoryAction = addCategory.bind(null, activity.id, slug);
   const setScoresAction = setWeightedScores.bind(null, activity.id, slug);
@@ -165,6 +225,8 @@ export default async function ActivityPage({
       activity.categories,
       flatScores
     );
+  } else if (activity.format === "ROUND_ROBIN") {
+    placements = computeRoundRobinPlacements(teams, roundRobinMatches);
   }
   const placementRows = Array.from(placements.entries())
     .map(([teamId, placement]) => ({
@@ -179,7 +241,9 @@ export default async function ActivityPage({
     activity.placementPoints.map((p) => [p.placement, p.points])
   );
   const supportsPlacements =
-    activity.format === "ELIMINATION" || activity.format === "WEIGHTED_SCORE";
+    activity.format === "ELIMINATION" ||
+    activity.format === "WEIGHTED_SCORE" ||
+    activity.format === "ROUND_ROBIN";
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">
@@ -198,17 +262,6 @@ export default async function ActivityPage({
             {activity.name}
           </h1>
         </div>
-
-        {activity.format === "ROUND_ROBIN" && (
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-stone-500">
-                Round robin isn&apos;t built yet, it&apos;s coming in a
-                future update.
-              </p>
-            </CardContent>
-          </Card>
-        )}
 
         {activity.format === "ELIMINATION" && isEditor && (
           <Card>
@@ -247,6 +300,96 @@ export default async function ActivityPage({
               <p className="text-sm text-stone-500">
                 Waiting for the organizer to generate the bracket.
               </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {activity.format === "ROUND_ROBIN" && isEditor && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Round robin schedule</CardTitle>
+              <CardDescription>
+                {teamCount < 2
+                  ? "Add at least 2 teams to the event before generating a schedule."
+                  : hasMatches
+                    ? "Regenerating will reset any scores you've already entered."
+                    : `Ready to generate a schedule for ${teamCount} teams — everyone plays everyone once.`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form action={generateRoundRobinAction}>
+                {hasMatches ? (
+                  <ConfirmSubmitButton
+                    confirmMessage="Regenerate the schedule? This clears any scores already entered."
+                    variant="secondary"
+                  >
+                    Regenerate schedule
+                  </ConfirmSubmitButton>
+                ) : (
+                  <SubmitButton disabled={teamCount < 2}>
+                    Generate schedule
+                  </SubmitButton>
+                )}
+              </form>
+            </CardContent>
+          </Card>
+        )}
+
+        {activity.format === "ROUND_ROBIN" && !isEditor && !hasMatches && (
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-sm text-stone-500">
+                Waiting for the organizer to generate the schedule.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {activity.format === "ROUND_ROBIN" && roundRobinResults.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Standings for this game</CardTitle>
+              {!roundRobinComplete && (
+                <CardDescription>
+                  Provisional — not every match has been played yet.
+                </CardDescription>
+              )}
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-stone-200 text-left text-stone-500">
+                    <th className="py-2 pr-4 font-medium">Team</th>
+                    <th className="py-2 px-2 font-medium text-center">W</th>
+                    <th className="py-2 px-2 font-medium text-center">L</th>
+                    <th className="py-2 px-2 font-medium text-center">
+                      Diff
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {roundRobinResults.map((row) => (
+                    <tr
+                      key={row.teamId}
+                      className="border-b border-stone-100 last:border-0"
+                    >
+                      <td className="py-2 pr-4 font-medium text-stone-900">
+                        {row.teamName}
+                      </td>
+                      <td className="py-2 px-2 text-center text-stone-600">
+                        {row.wins}
+                      </td>
+                      <td className="py-2 px-2 text-center text-stone-600">
+                        {row.losses}
+                      </td>
+                      <td className="py-2 px-2 text-center text-stone-600">
+                        {row.pointsFor - row.pointsAgainst > 0 ? "+" : ""}
+                        {row.pointsFor - row.pointsAgainst}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </CardContent>
           </Card>
         )}
@@ -610,6 +753,20 @@ export default async function ActivityPage({
               </div>
             )}
           </>
+        )}
+
+        {activity.format === "ROUND_ROBIN" && hasMatches && (
+          <div>
+            <h2 className="text-lg font-medium text-stone-900 mb-3">
+              Schedule
+            </h2>
+            <RoundRobinRounds
+              rounds={roundRobinRounds}
+              slug={slug}
+              activityId={activity.id}
+              isEditor={isEditor}
+            />
+          </div>
         )}
       </div>
     </main>

@@ -283,7 +283,7 @@ export default async function EventPage({
                   >
                     <option value="ELIMINATION">Elimination bracket</option>
                     <option value="ROUND_ROBIN">
-                      Round robin (coming soon)
+                      Round robin
                     </option>
                     <option value="WEIGHTED_SCORE">
                       Judged scoring
