@@ -42,8 +42,14 @@ export default async function StandingsPage({
   const isEditor = await canEdit(slug);
   const toggleAction = toggleStandingsVisibility.bind(null, event.id, slug);
   const rows = computeStandings(event.teams, event.activities);
+
+  // Any format that can contribute placement points gets its own
+  // breakdown column — not just Elimination.
   const scorableActivities = event.activities.filter(
-    (a) => a.format === "ELIMINATION" || a.format === "WEIGHTED_SCORE"
+    (a) =>
+      a.format === "ELIMINATION" ||
+      a.format === "WEIGHTED_SCORE" ||
+      a.format === "ROUND_ROBIN"
   );
 
   return (
@@ -95,7 +101,7 @@ export default async function StandingsPage({
               <CardTitle>Leaderboard</CardTitle>
               <CardDescription>
                 {scorableActivities.length === 0
-                  ? "Add an elimination or judged-scoring game to start earning points."
+                  ? "Add a game to start earning points."
                   : "Points earned from 1st/2nd/3rd place finishes across every game."}
               </CardDescription>
             </CardHeader>
@@ -138,9 +144,7 @@ export default async function StandingsPage({
                               : undefined
                           }
                         >
-                          <td className="py-2 pr-4 text-stone-500">
-                            {rank}
-                          </td>
+                          <td className="py-2 pr-4 text-stone-500">{rank}</td>
                           <td className="py-2 pr-4 font-medium text-stone-900">
                             {row.teamName}
                           </td>
