@@ -8,6 +8,7 @@ import {
   clearSeeds,
   setSeed,
   createActivity,
+  deleteActivity,
   deleteEvent,
 } from "@/lib/actions";
 import { canEdit } from "@/lib/permissions";
@@ -49,7 +50,11 @@ export default async function EventPage({
   const addTeamAction = addTeam.bind(null, event.id, event.slug);
   const randomizeAction = randomizeSeeds.bind(null, event.id, event.slug);
   const clearAction = clearSeeds.bind(null, event.id, event.slug);
-  const createActivityAction = createActivity.bind(null, event.id, event.slug);
+  const createActivityAction = createActivity.bind(
+    null,
+    event.id,
+    event.slug
+  );
   const deleteEventAction = deleteEvent.bind(null, event.id, event.slug);
 
   return (
@@ -282,12 +287,8 @@ export default async function EventPage({
                     className="h-11 w-full rounded-lg border border-stone-300 bg-white px-3.5 text-base text-stone-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                   >
                     <option value="ELIMINATION">Elimination bracket</option>
-                    <option value="ROUND_ROBIN">
-                      Round robin
-                    </option>
-                    <option value="WEIGHTED_SCORE">
-                      Judged scoring
-                    </option>
+                    <option value="ROUND_ROBIN">Round robin</option>
+                    <option value="WEIGHTED_SCORE">Judged scoring</option>
                   </select>
                 </div>
                 <SubmitButton>Add game</SubmitButton>
@@ -300,25 +301,46 @@ export default async function EventPage({
               </p>
             ) : (
               <ul className="flex flex-col gap-2">
-                {event.activities.map((activity) => (
-                  <li key={activity.id}>
-                    <Link
-                      href={`/events/${event.slug}/activities/${activity.id}`}
-                      className="flex items-center justify-between rounded-lg border border-stone-200 bg-white p-3 hover:bg-stone-50 transition-colors"
+                {event.activities.map((activity) => {
+                  const deleteActivityAction = deleteActivity.bind(
+                    null,
+                    activity.id,
+                    event.slug
+                  );
+                  return (
+                    <li
+                      key={activity.id}
+                      className="flex items-center gap-2"
                     >
-                      <span className="font-medium text-stone-900">
-                        {activity.name}
-                      </span>
-                      <span className="text-xs text-stone-500">
-                        {activity.format === "ELIMINATION" &&
-                          "Elimination bracket"}
-                        {activity.format === "ROUND_ROBIN" && "Round robin"}
-                        {activity.format === "WEIGHTED_SCORE" &&
-                          "Judged scoring"}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
+                      <Link
+                        href={`/events/${event.slug}/activities/${activity.id}`}
+                        className="flex-1 flex items-center justify-between rounded-lg border border-stone-200 bg-white p-3 hover:bg-stone-50 transition-colors"
+                      >
+                        <span className="font-medium text-stone-900">
+                          {activity.name}
+                        </span>
+                        <span className="text-xs text-stone-500">
+                          {activity.format === "ELIMINATION" &&
+                            "Elimination bracket"}
+                          {activity.format === "ROUND_ROBIN" && "Round robin"}
+                          {activity.format === "WEIGHTED_SCORE" &&
+                            "Judged scoring"}
+                        </span>
+                      </Link>
+                      {isEditor && (
+                        <form action={deleteActivityAction}>
+                          <ConfirmSubmitButton
+                            confirmMessage={`Delete "${activity.name}"? This also removes its matches, scores, and points setup.`}
+                            variant="ghost"
+                            size="sm"
+                          >
+                            Remove
+                          </ConfirmSubmitButton>
+                        </form>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </CardContent>

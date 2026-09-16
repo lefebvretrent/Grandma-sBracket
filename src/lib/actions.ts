@@ -154,6 +154,16 @@ export async function createActivity(
   revalidatePath(`/events/${eventSlug}`);
 }
 
+// Cascades cleanly via Prisma's onDelete: Cascade — removes this
+// activity's matches, categories, scores, and placement points too.
+export async function deleteActivity(activityId: string, eventSlug: string) {
+  if (!(await canEdit(eventSlug))) return;
+
+  await prisma.activity.delete({ where: { id: activityId } });
+  revalidatePath(`/events/${eventSlug}`);
+  revalidatePath(`/events/${eventSlug}/standings`);
+}
+
 export async function setPlacementPoints(
   activityId: string,
   eventSlug: string,
