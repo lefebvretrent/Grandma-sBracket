@@ -21,6 +21,29 @@ export function getRecentEvents(): RecentEvent[] {
   return readAll().sort((a, b) => b.visitedAt - a.visitedAt);
 }
 
+// Tiny store so React can read the list with useSyncExternalStore. The
+// snapshot is cached because React requires the same array back until
+// something actually changes.
+let snapshot: RecentEvent[] | null = null;
+const listeners = new Set<() => void>();
+
+export function subscribeRecentEvents(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export function getRecentEventsSnapshot(): RecentEvent[] {
+  if (snapshot === null) snapshot = getRecentEvents();
+  return snapshot;
+}
+
+function notifyChanged() {
+  snapshot = null;
+  listeners.forEach((listener) => listener());
+}
+
 export function trackRecentEvent(slug: string, name: string) {
   if (typeof window === "undefined") return;
   const existing = readAll().filter((e) => e.slug !== slug);
@@ -30,6 +53,7 @@ export function trackRecentEvent(slug: string, name: string) {
   );
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    notifyChanged();
   } catch {
     // localStorage might be unavailable (private browsing, full quota) —
     // fine to just skip, this is a nice-to-have, not critical.
@@ -41,6 +65,7 @@ export function removeRecentEvent(slug: string) {
   const remaining = readAll().filter((e) => e.slug !== slug);
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(remaining));
+    notifyChanged();
   } catch {
     // ignore — same as above
   }

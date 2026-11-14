@@ -63,8 +63,7 @@ It'll ask for a migration name — `init` is fine.
 npm run dev
 ```
 
-Open http://localhost:3000 — you should see the placeholder home page
-confirming everything's connected.
+Open http://localhost:3000 to see the home page.
 
 ### 7. Push and deploy
 
@@ -96,7 +95,32 @@ src/app/                   pages and routes
 Adding a new game type later just means adding a new format value and a
 small UI — Event and Team don't need to change.
 
-## What's next
+## Applying database changes in production
 
-This scaffold covers project setup and the data model. Next up: the event
-and team setup screens, then the bracket generation engine.
+Vercel's build only runs `prisma generate`; it does **not** apply
+migrations. Whenever a commit adds a folder under `prisma/migrations/`,
+apply it to the production database from your machine (with `.env`
+pointing at production):
+
+```bash
+npx prisma migrate deploy
+```
+
+## Security model
+
+- **No accounts.** Creating an event sets an httpOnly cookie holding that
+  event's secret `editToken` (256 random bits). Only that browser can
+  edit; everyone else with the code or link can view.
+- **Every server action is scoped to the organizer's own event**
+  (`getEditableEvent` in `src/lib/permissions.ts`). Ids passed from the
+  browser are never trusted on their own.
+- **The Supabase anon key is public**, so all tables have Row Level
+  Security enabled with no policies: the public REST/Realtime API can't
+  read or write anything. The app talks to the database only through
+  Prisma on the server, which isn't affected by RLS.
+- **Live updates** are data-free broadcast pings on an `event:<code>`
+  channel (`src/lib/realtime-server.ts` →
+  `src/components/realtime-refresh.tsx`); pages then re-fetch through
+  the server. Supabase Realtime must allow public broadcast channels
+  (the default; see Project Settings → Realtime).
+- **Input limits** live in `src/lib/validation.ts`.
