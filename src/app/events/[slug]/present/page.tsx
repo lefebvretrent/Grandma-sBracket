@@ -33,9 +33,7 @@ export default async function PresentPage({
 
   return (
     <main className="min-h-screen bg-stone-950 text-white flex flex-col items-center px-10 py-12">
-      <RealtimeRefresh
-        tables={["Match", "Category", "Score", "PlacementPoint", "Event"]}
-      />
+      <RealtimeRefresh eventSlug={event.slug} />
 
       <p className="text-amber-400 text-2xl font-medium tracking-wide uppercase">
         {event.name}

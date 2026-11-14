@@ -5,6 +5,7 @@ import { generateJoinCode } from "@/lib/join-code";
 import { nextPowerOfTwo, seedOrder } from "@/lib/bracket";
 import { roundRobinSchedule } from "@/lib/round-robin";
 import { getEditableEvent, grantEditAccess } from "@/lib/permissions";
+import { notifyEventChanged } from "@/lib/realtime-server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Prisma } from "@prisma/client";
@@ -32,6 +33,7 @@ export async function deleteEvent(eventSlug: string) {
   if (!event) return;
 
   await prisma.event.delete({ where: { id: event.id } });
+  await notifyEventChanged(eventSlug);
   redirect("/");
 }
 
@@ -65,6 +67,7 @@ export async function addTeam(eventSlug: string, formData: FormData) {
   if (!name) return;
 
   await prisma.team.create({ data: { name, members, eventId: event.id } });
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}`);
 }
 
@@ -74,6 +77,7 @@ export async function deleteTeam(teamId: string, eventSlug: string) {
 
   // deleteMany + eventId so a teamId from another event matches nothing.
   await prisma.team.deleteMany({ where: { id: teamId, eventId: event.id } });
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}`);
 }
 
@@ -96,6 +100,7 @@ export async function randomizeSeeds(eventSlug: string) {
       prisma.team.update({ where: { id: team.id }, data: { seed: i + 1 } })
     )
   );
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}`);
 }
 
@@ -107,6 +112,7 @@ export async function clearSeeds(eventSlug: string) {
     where: { eventId: event.id },
     data: { seed: null },
   });
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}`);
 }
 
@@ -126,6 +132,7 @@ export async function setSeed(
     where: { id: teamId, eventId: event.id },
     data: { seed },
   });
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}`);
 }
 
@@ -166,6 +173,7 @@ export async function createActivity(eventSlug: string, formData: FormData) {
       },
     },
   });
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}`);
 }
 
@@ -178,6 +186,7 @@ export async function deleteActivity(activityId: string, eventSlug: string) {
   await prisma.activity.deleteMany({
     where: { id: activityId, eventId: event.id },
   });
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}`);
   revalidatePath(`/events/${eventSlug}/standings`);
 }
@@ -213,6 +222,7 @@ export async function setPlacementPoints(
     )
   );
 
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
   revalidatePath(`/events/${eventSlug}/standings`);
 }
@@ -230,6 +240,7 @@ export async function toggleStandingsVisibility(eventSlug: string) {
     where: { id: editable.id },
     data: { standingsVisible: !event.standingsVisible },
   });
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}`);
   revalidatePath(`/events/${eventSlug}/standings`);
 }
@@ -253,6 +264,7 @@ export async function addCategory(
   await prisma.category.create({
     data: { name, weight: Number.isNaN(weight) ? 1 : weight, activityId },
   });
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
 }
 
@@ -267,6 +279,7 @@ export async function deleteCategory(
   await prisma.category.deleteMany({
     where: { id: categoryId, activity: { id: activityId, eventId: event.id } },
   });
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
   revalidatePath(`/events/${eventSlug}/standings`);
 }
@@ -316,6 +329,7 @@ export async function setWeightedScores(
     await prisma.$transaction(upserts);
   }
 
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
   revalidatePath(`/events/${eventSlug}/standings`);
 }
@@ -364,6 +378,7 @@ export async function generateRoundRobin(
     }
   });
 
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
 }
 
@@ -616,6 +631,7 @@ export async function generateBracket(activityId: string, eventSlug: string) {
     { timeout: 30000 }
   );
 
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
 }
 
@@ -749,6 +765,7 @@ export async function reportScore(
     }
   });
 
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
   return {};
 }
@@ -859,6 +876,7 @@ export async function editScore(
     }
   });
 
+  await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
   return {};
 }

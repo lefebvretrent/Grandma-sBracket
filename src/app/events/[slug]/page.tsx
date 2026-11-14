@@ -55,7 +55,7 @@ export default async function EventPage({
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">
-      <RealtimeRefresh tables={["Team", "Activity"]} />
+      <RealtimeRefresh eventSlug={event.slug} />
       <RecentEventsTracker slug={event.slug} name={event.name} />
       <div className="max-w-2xl mx-auto flex flex-col gap-6">
         <div className="flex items-center justify-between">

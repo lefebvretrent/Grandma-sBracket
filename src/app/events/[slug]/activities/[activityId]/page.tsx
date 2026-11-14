@@ -247,9 +247,7 @@ export default async function ActivityPage({
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">
-      <RealtimeRefresh
-        tables={["Match", "Category", "Score", "PlacementPoint"]}
-      />
+      <RealtimeRefresh eventSlug={slug} />
       <div className="max-w-5xl mx-auto flex flex-col gap-8">
         <div>
           <Link

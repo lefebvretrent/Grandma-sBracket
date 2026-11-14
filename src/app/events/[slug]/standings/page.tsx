@@ -54,9 +54,7 @@ export default async function StandingsPage({
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">
-      <RealtimeRefresh
-        tables={["Match", "Category", "Score", "PlacementPoint", "Event"]}
-      />
+      <RealtimeRefresh eventSlug={slug} />
       <div className="max-w-3xl mx-auto flex flex-col gap-6">
         <div className="flex items-center justify-between">
           <div>

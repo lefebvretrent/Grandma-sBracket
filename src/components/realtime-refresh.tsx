@@ -4,39 +4,23 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-export function RealtimeRefresh({ tables }: { tables: string[] }) {
+// Listens for "refresh" pings on this event's broadcast channel (sent by
+// notifyEventChanged in lib/realtime-server.ts after every change) and
+// re-renders the page from the server. The ping itself carries no data.
+export function RealtimeRefresh({ eventSlug }: { eventSlug: string }) {
   const router = useRouter();
 
-  // Create a deterministic, stable string key (e.g. "Category-Match-PlacementPoint-Score")
-  const tableKey = [...tables].sort().join("-");
-
   useEffect(() => {
-    if (!tableKey) return;
-
-    const channel = supabase.channel(`refresh:${tableKey}`);
-
-    for (const table of tables) {
-      channel.on(
-        "postgres_changes",
-        { event: "*", schema: "public", table },
-        (payload) => {
-          console.log(`[Realtime] Change on ${table}:`, payload);
-          router.refresh();
-        }
-      );
-    }
-
-    channel.subscribe((status, err) => {
-      if (err) console.error("[Realtime] Error:", err);
-    });
+    // Keep in sync with eventChannelName() in lib/realtime-server.ts.
+    const channel = supabase
+      .channel(`event:${eventSlug}`)
+      .on("broadcast", { event: "refresh" }, () => router.refresh())
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-
-    // Only depend on the primitive string key
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableKey]);
+  }, [eventSlug, router]);
 
   return null;
 }
