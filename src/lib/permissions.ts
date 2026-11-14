@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 
@@ -5,6 +6,22 @@ const EDIT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
 
 function editCookieName(eventSlug: string) {
   return `edit_${eventSlug}`;
+}
+
+// The organizer's secret. 32 random bytes from the OS's secure random
+// generator (~256 bits), so it can't be guessed. The schema's
+// @default(cuid()) is only a fallback: cuids are built from a timestamp
+// and a counter and are meant to be unique, not secret.
+export function generateEditToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+// Compares in constant time so the response time doesn't reveal how
+// many leading characters of a guess were right.
+function tokensMatch(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
 }
 
 // Marks the current browser as the organizer for this event by setting
@@ -26,13 +43,32 @@ export async function grantEditAccess(eventSlug: string, editToken: string) {
 // decide what to render, and from Server Actions to decide what to
 // allow.
 export async function canEdit(eventSlug: string): Promise<boolean> {
+  return (await getEditableEvent(eventSlug)) !== null;
+}
+
+// The event this browser is allowed to edit, or null. Server Actions
+// should use this rather than canEdit: it hands back the event's real
+// id, so every query that follows can be scoped to *this* event.
+//
+// Why that matters: Server Actions are public endpoints, and any extra
+// arguments (teamId, matchId, ...) come from the client and can be
+// swapped for anything. If an action only checked "is this person an
+// editor of *some* event?" and then trusted a client-supplied id, an
+// organizer of their own throwaway event could delete or rescore
+// anyone else's. Scoping every lookup to the event returned here closes
+// that hole.
+export async function getEditableEvent(
+  eventSlug: string
+): Promise<{ id: string; slug: string } | null> {
   const event = await prisma.event.findUnique({
     where: { slug: eventSlug },
-    select: { editToken: true },
+    select: { id: true, slug: true, editToken: true },
   });
-  if (!event) return false;
+  if (!event) return null;
 
   const cookieStore = await cookies();
   const token = cookieStore.get(editCookieName(eventSlug))?.value;
-  return !!token && token === event.editToken;
+  if (!token || !tokensMatch(token, event.editToken)) return null;
+
+  return { id: event.id, slug: event.slug };
 }

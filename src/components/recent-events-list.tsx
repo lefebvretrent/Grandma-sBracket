@@ -1,26 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import {
-  getRecentEvents,
+  getRecentEventsSnapshot,
   removeRecentEvent,
-  type RecentEvent,
+  subscribeRecentEvents,
 } from "@/lib/recent-events";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 export function RecentEventsList() {
-  // null = "haven't checked localStorage yet" — avoids a flash of empty
-  // state before the client mounts.
-  const [events, setEvents] = useState<RecentEvent[] | null>(null);
-
-  useEffect(() => {
-    setEvents(getRecentEvents());
-  }, []);
+  // Reads localStorage through a small external store. On the server
+  // (and during hydration) the snapshot is null, so nothing renders
+  // until the browser can actually see localStorage, with no flash of
+  // empty state and no setState-in-useEffect.
+  const events = useSyncExternalStore(
+    subscribeRecentEvents,
+    getRecentEventsSnapshot,
+    () => null
+  );
 
   function handleRemove(slug: string) {
     removeRecentEvent(slug);
-    setEvents((prev) => (prev ? prev.filter((e) => e.slug !== slug) : prev));
   }
 
   if (!events || events.length === 0) return null;

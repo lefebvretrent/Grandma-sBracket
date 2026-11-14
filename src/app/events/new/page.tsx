@@ -8,6 +8,7 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
+import { LIMITS } from "@/lib/validation";
 
 export default function NewEventPage() {
   return (
@@ -32,6 +33,7 @@ export default function NewEventPage() {
                 id="name"
                 name="name"
                 placeholder="e.g. Summer Family Games 2026"
+                maxLength={LIMITS.eventName}
                 required
                 autoFocus
               />

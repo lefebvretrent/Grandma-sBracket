@@ -25,6 +25,7 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
+import { LIMITS } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -47,19 +48,15 @@ export default async function EventPage({
 
   const isEditor = await canEdit(event.slug);
 
-  const addTeamAction = addTeam.bind(null, event.id, event.slug);
-  const randomizeAction = randomizeSeeds.bind(null, event.id, event.slug);
-  const clearAction = clearSeeds.bind(null, event.id, event.slug);
-  const createActivityAction = createActivity.bind(
-    null,
-    event.id,
-    event.slug
-  );
-  const deleteEventAction = deleteEvent.bind(null, event.id, event.slug);
+  const addTeamAction = addTeam.bind(null, event.slug);
+  const randomizeAction = randomizeSeeds.bind(null, event.slug);
+  const clearAction = clearSeeds.bind(null, event.slug);
+  const createActivityAction = createActivity.bind(null, event.slug);
+  const deleteEventAction = deleteEvent.bind(null, event.slug);
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">
-      <RealtimeRefresh tables={["Team", "Activity"]} />
+      <RealtimeRefresh eventSlug={event.slug} />
       <RecentEventsTracker slug={event.slug} name={event.name} />
       <div className="max-w-2xl mx-auto flex flex-col gap-6">
         <div className="flex items-center justify-between">
@@ -113,6 +110,7 @@ export default async function EventPage({
                     id="name"
                     name="name"
                     placeholder="e.g. The Smashers"
+                    maxLength={LIMITS.teamName}
                     required
                   />
                 </div>
@@ -127,6 +125,7 @@ export default async function EventPage({
                     id="members"
                     name="members"
                     placeholder="e.g. Grandma, Uncle Joe"
+                    maxLength={LIMITS.teamMembers}
                   />
                 </div>
                 <SubmitButton>Add team</SubmitButton>
@@ -213,6 +212,8 @@ export default async function EventPage({
                           name="seed"
                           defaultValue={team.seed ?? ""}
                           placeholder="#"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           className="w-16 text-center"
                           aria-label={`Seed for ${team.name}`}
                         />
@@ -270,6 +271,7 @@ export default async function EventPage({
                     id="activity-name"
                     name="name"
                     placeholder="e.g. Badminton"
+                    maxLength={LIMITS.activityName}
                     required
                   />
                 </div>

@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { editScore } from "@/lib/actions";
 import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
+import { LIMITS } from "@/lib/validation";
 
 export function EditScoreForm({
   matchId,
@@ -79,6 +80,9 @@ function EditScoreRow({
       <Input
         name={name}
         type="number"
+        min={0}
+        max={LIMITS.matchScoreMax}
+        step={1}
         placeholder="0"
         required
         defaultValue={defaultValue ?? ""}

@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { reportScore } from "@/lib/actions";
 import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
+import { LIMITS } from "@/lib/validation";
 
 export function ScoreForm({
   matchId,
@@ -58,6 +59,9 @@ function ScoreRow({
       <Input
         name={name}
         type="number"
+        min={0}
+        max={LIMITS.matchScoreMax}
+        step={1}
         placeholder="0"
         required
         className="h-11 w-20 shrink-0 bg-white text-center text-lg font-semibold px-2"
