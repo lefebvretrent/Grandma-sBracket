@@ -825,7 +825,11 @@ export async function reportScore(
     // organizers scoring at once, could both see "no winner yet",
     // overwrite each other, and even create two grand-final rematches.
     await lockMatches(tx, [matchId]);
-    const match = await tx.match.findUniqueOrThrow({ where: { id: matchId } });
+    const match = await tx.match.findUnique({ where: { id: matchId } });
+    if (!match) {
+      // The bracket was regenerated while this form was open.
+      throw new ScoreRejected("This match no longer exists. Refresh the page.");
+    }
 
     if (match.winnerId) {
       throw new ScoreRejected(
@@ -914,7 +918,11 @@ export async function editScore(
         (id): id is string => !!id
       )
     );
-    const match = await tx.match.findUniqueOrThrow({ where: { id: matchId } });
+    const match = await tx.match.findUnique({ where: { id: matchId } });
+    if (!match) {
+      // The bracket was regenerated while this form was open.
+      throw new ScoreRejected("This match no longer exists. Refresh the page.");
+    }
 
     if (!match.teamAId || !match.teamBId || !match.winnerId) {
       throw new ScoreRejected("This match hasn't been played yet.");
