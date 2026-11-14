@@ -4,7 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { generateJoinCode } from "@/lib/join-code";
 import { nextPowerOfTwo, seedOrder } from "@/lib/bracket";
 import { roundRobinSchedule } from "@/lib/round-robin";
-import { getEditableEvent, grantEditAccess } from "@/lib/permissions";
+import {
+  generateEditToken,
+  getEditableEvent,
+  grantEditAccess,
+} from "@/lib/permissions";
 import { notifyEventChanged } from "@/lib/realtime-server";
 import {
   LIMITS,
@@ -29,7 +33,9 @@ export async function createEvent(formData: FormData) {
     slug = generateJoinCode();
   }
 
-  const event = await prisma.event.create({ data: { name, slug } });
+  const event = await prisma.event.create({
+    data: { name, slug, editToken: generateEditToken() },
+  });
   await grantEditAccess(slug, event.editToken);
 
   redirect(`/events/${slug}`);

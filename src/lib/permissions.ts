@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 
@@ -5,6 +6,22 @@ const EDIT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
 
 function editCookieName(eventSlug: string) {
   return `edit_${eventSlug}`;
+}
+
+// The organizer's secret. 32 random bytes from the OS's secure random
+// generator (~256 bits), so it can't be guessed. The schema's
+// @default(cuid()) is only a fallback: cuids are built from a timestamp
+// and a counter and are meant to be unique, not secret.
+export function generateEditToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+// Compares in constant time so the response time doesn't reveal how
+// many leading characters of a guess were right.
+function tokensMatch(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
 }
 
 // Marks the current browser as the organizer for this event by setting
@@ -51,7 +68,7 @@ export async function getEditableEvent(
 
   const cookieStore = await cookies();
   const token = cookieStore.get(editCookieName(eventSlug))?.value;
-  if (!token || token !== event.editToken) return null;
+  if (!token || !tokensMatch(token, event.editToken)) return null;
 
   return { id: event.id, slug: event.slug };
 }
