@@ -40,7 +40,7 @@ export default async function StandingsPage({
   if (!event) notFound();
 
   const isEditor = await canEdit(slug);
-  const toggleAction = toggleStandingsVisibility.bind(null, event.id, slug);
+  const toggleAction = toggleStandingsVisibility.bind(null, slug);
   const rows = computeStandings(event.teams, event.activities);
 
   // Any format that can contribute placement points gets its own

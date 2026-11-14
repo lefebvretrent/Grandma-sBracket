@@ -47,15 +47,11 @@ export default async function EventPage({
 
   const isEditor = await canEdit(event.slug);
 
-  const addTeamAction = addTeam.bind(null, event.id, event.slug);
-  const randomizeAction = randomizeSeeds.bind(null, event.id, event.slug);
-  const clearAction = clearSeeds.bind(null, event.id, event.slug);
-  const createActivityAction = createActivity.bind(
-    null,
-    event.id,
-    event.slug
-  );
-  const deleteEventAction = deleteEvent.bind(null, event.id, event.slug);
+  const addTeamAction = addTeam.bind(null, event.slug);
+  const randomizeAction = randomizeSeeds.bind(null, event.slug);
+  const clearAction = clearSeeds.bind(null, event.slug);
+  const createActivityAction = createActivity.bind(null, event.slug);
+  const deleteEventAction = deleteEvent.bind(null, event.slug);
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">

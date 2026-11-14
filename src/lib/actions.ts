@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { generateJoinCode } from "@/lib/join-code";
 import { nextPowerOfTwo, seedOrder } from "@/lib/bracket";
 import { roundRobinSchedule } from "@/lib/round-robin";
-import { canEdit, grantEditAccess } from "@/lib/permissions";
+import { getEditableEvent, grantEditAccess } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Prisma } from "@prisma/client";
@@ -27,10 +27,11 @@ export async function createEvent(formData: FormData) {
   redirect(`/events/${slug}`);
 }
 
-export async function deleteEvent(eventId: string, eventSlug: string) {
-  if (!(await canEdit(eventSlug))) return;
+export async function deleteEvent(eventSlug: string) {
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
-  await prisma.event.delete({ where: { id: eventId } });
+  await prisma.event.delete({ where: { id: event.id } });
   redirect("/");
 }
 
@@ -55,34 +56,34 @@ export async function joinEvent(
   redirect(`/events/${slug}`);
 }
 
-export async function addTeam(
-  eventId: string,
-  eventSlug: string,
-  formData: FormData
-) {
-  if (!(await canEdit(eventSlug))) return;
+export async function addTeam(eventSlug: string, formData: FormData) {
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
   const name = String(formData.get("name") || "").trim();
   const members = String(formData.get("members") || "").trim() || null;
   if (!name) return;
 
-  await prisma.team.create({ data: { name, members, eventId } });
+  await prisma.team.create({ data: { name, members, eventId: event.id } });
   revalidatePath(`/events/${eventSlug}`);
 }
 
 export async function deleteTeam(teamId: string, eventSlug: string) {
-  if (!(await canEdit(eventSlug))) return;
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
-  await prisma.team.delete({ where: { id: teamId } });
+  // deleteMany + eventId so a teamId from another event matches nothing.
+  await prisma.team.deleteMany({ where: { id: teamId, eventId: event.id } });
   revalidatePath(`/events/${eventSlug}`);
 }
 
 // Shuffles all teams in the event and assigns seeds 1..N based on the
 // shuffled order. Simple Fisher-Yates so every ordering is equally likely.
-export async function randomizeSeeds(eventId: string, eventSlug: string) {
-  if (!(await canEdit(eventSlug))) return;
+export async function randomizeSeeds(eventSlug: string) {
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
-  const teams = await prisma.team.findMany({ where: { eventId } });
+  const teams = await prisma.team.findMany({ where: { eventId: event.id } });
 
   const shuffled = [...teams];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -98,10 +99,14 @@ export async function randomizeSeeds(eventId: string, eventSlug: string) {
   revalidatePath(`/events/${eventSlug}`);
 }
 
-export async function clearSeeds(eventId: string, eventSlug: string) {
-  if (!(await canEdit(eventSlug))) return;
+export async function clearSeeds(eventSlug: string) {
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
-  await prisma.team.updateMany({ where: { eventId }, data: { seed: null } });
+  await prisma.team.updateMany({
+    where: { eventId: event.id },
+    data: { seed: null },
+  });
   revalidatePath(`/events/${eventSlug}`);
 }
 
@@ -110,24 +115,34 @@ export async function setSeed(
   eventSlug: string,
   formData: FormData
 ) {
-  if (!(await canEdit(eventSlug))) return;
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
   const raw = String(formData.get("seed") || "").trim();
   const parsed = raw === "" ? null : Number(raw);
   const seed = parsed !== null && !Number.isNaN(parsed) ? parsed : null;
 
-  await prisma.team.update({ where: { id: teamId }, data: { seed } });
+  await prisma.team.updateMany({
+    where: { id: teamId, eventId: event.id },
+    data: { seed },
+  });
   revalidatePath(`/events/${eventSlug}`);
 }
 
 // --- Activities ---
 
-export async function createActivity(
-  eventId: string,
-  eventSlug: string,
-  formData: FormData
-) {
-  if (!(await canEdit(eventSlug))) return;
+// Loads an activity only if it belongs to the given event. Every action
+// that takes an activityId from the client goes through this.
+async function findActivityInEvent(activityId: string, eventId: string) {
+  return prisma.activity.findFirst({
+    where: { id: activityId, eventId },
+    select: { id: true },
+  });
+}
+
+export async function createActivity(eventSlug: string, formData: FormData) {
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
   const name = String(formData.get("name") || "").trim();
   const format = String(formData.get("format") || "ELIMINATION") as
@@ -140,7 +155,7 @@ export async function createActivity(
     data: {
       name,
       format,
-      eventId,
+      eventId: event.id,
       // Default 3/2/1 for 1st/2nd/3rd — editable afterward per activity.
       placementPoints: {
         create: [
@@ -157,9 +172,12 @@ export async function createActivity(
 // Cascades cleanly via Prisma's onDelete: Cascade — removes this
 // activity's matches, categories, scores, and placement points too.
 export async function deleteActivity(activityId: string, eventSlug: string) {
-  if (!(await canEdit(eventSlug))) return;
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
-  await prisma.activity.delete({ where: { id: activityId } });
+  await prisma.activity.deleteMany({
+    where: { id: activityId, eventId: event.id },
+  });
   revalidatePath(`/events/${eventSlug}`);
   revalidatePath(`/events/${eventSlug}/standings`);
 }
@@ -169,7 +187,9 @@ export async function setPlacementPoints(
   eventSlug: string,
   formData: FormData
 ) {
-  if (!(await canEdit(eventSlug))) return;
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
+  if (!(await findActivityInEvent(activityId, event.id))) return;
 
   const entries = [1, 2, 3].map((placement) => {
     const raw = String(formData.get(`points-${placement}`) ?? "0");
@@ -199,17 +219,15 @@ export async function setPlacementPoints(
 
 // --- Standings ---
 
-export async function toggleStandingsVisibility(
-  eventId: string,
-  eventSlug: string
-) {
-  if (!(await canEdit(eventSlug))) return;
+export async function toggleStandingsVisibility(eventSlug: string) {
+  const editable = await getEditableEvent(eventSlug);
+  if (!editable) return;
 
   const event = await prisma.event.findUniqueOrThrow({
-    where: { id: eventId },
+    where: { id: editable.id },
   });
   await prisma.event.update({
-    where: { id: eventId },
+    where: { id: editable.id },
     data: { standingsVisible: !event.standingsVisible },
   });
   revalidatePath(`/events/${eventSlug}`);
@@ -223,7 +241,9 @@ export async function addCategory(
   eventSlug: string,
   formData: FormData
 ) {
-  if (!(await canEdit(eventSlug))) return;
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
+  if (!(await findActivityInEvent(activityId, event.id))) return;
 
   const name = String(formData.get("name") || "").trim();
   const weightRaw = String(formData.get("weight") || "1");
@@ -241,9 +261,12 @@ export async function deleteCategory(
   eventSlug: string,
   activityId: string
 ) {
-  if (!(await canEdit(eventSlug))) return;
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
-  await prisma.category.delete({ where: { id: categoryId } });
+  await prisma.category.deleteMany({
+    where: { id: categoryId, activity: { id: activityId, eventId: event.id } },
+  });
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
   revalidatePath(`/events/${eventSlug}/standings`);
 }
@@ -257,15 +280,17 @@ export async function setWeightedScores(
   eventSlug: string,
   formData: FormData
 ) {
-  if (!(await canEdit(eventSlug))) return;
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
-  const activity = await prisma.activity.findUniqueOrThrow({
-    where: { id: activityId },
+  const activity = await prisma.activity.findFirst({
+    where: { id: activityId, eventId: event.id },
     include: {
       event: { include: { teams: true } },
       categories: true,
     },
   });
+  if (!activity) return;
 
   const upserts = [];
   for (const team of activity.event.teams) {
@@ -301,12 +326,14 @@ export async function generateRoundRobin(
   activityId: string,
   eventSlug: string
 ) {
-  if (!(await canEdit(eventSlug))) return;
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
-  const activity = await prisma.activity.findUniqueOrThrow({
-    where: { id: activityId },
+  const activity = await prisma.activity.findFirst({
+    where: { id: activityId, eventId: event.id },
     include: { event: { include: { teams: true } } },
   });
+  if (!activity) return;
 
   const teams = activity.event.teams;
   if (teams.length < 2) return;
@@ -364,12 +391,14 @@ export async function generateRoundRobin(
 //     second, winner-take-all match automatically.
 
 export async function generateBracket(activityId: string, eventSlug: string) {
-  if (!(await canEdit(eventSlug))) return;
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
 
-  const activity = await prisma.activity.findUniqueOrThrow({
-    where: { id: activityId },
+  const activity = await prisma.activity.findFirst({
+    where: { id: activityId, eventId: event.id },
     include: { event: { include: { teams: true } } },
   });
+  if (!activity) return;
 
   const teams = [...activity.event.teams].sort((a, b) => {
     const seedA = a.seed ?? Number.MAX_SAFE_INTEGER;
@@ -649,7 +678,8 @@ export async function reportScore(
   _prevState: ScoreActionState,
   formData: FormData
 ): Promise<ScoreActionState> {
-  if (!(await canEdit(eventSlug))) {
+  const event = await getEditableEvent(eventSlug);
+  if (!event) {
     return { error: "Only the event organizer can enter scores." };
   }
 
@@ -665,9 +695,10 @@ export async function reportScore(
     };
   }
 
-  const match = await prisma.match.findUniqueOrThrow({
-    where: { id: matchId },
+  const match = await prisma.match.findFirst({
+    where: { id: matchId, activity: { id: activityId, eventId: event.id } },
   });
+  if (!match) return { error: "That match doesn't belong to this event." };
   if (!match.teamAId || !match.teamBId) {
     return { error: "This match isn't ready for scores yet." };
   }
@@ -736,7 +767,8 @@ export async function editScore(
   _prevState: ScoreActionState,
   formData: FormData
 ): Promise<ScoreActionState> {
-  if (!(await canEdit(eventSlug))) {
+  const event = await getEditableEvent(eventSlug);
+  if (!event) {
     return { error: "Only the event organizer can edit scores." };
   }
 
@@ -752,9 +784,10 @@ export async function editScore(
     };
   }
 
-  const match = await prisma.match.findUniqueOrThrow({
-    where: { id: matchId },
+  const match = await prisma.match.findFirst({
+    where: { id: matchId, activity: { id: activityId, eventId: event.id } },
   });
+  if (!match) return { error: "That match doesn't belong to this event." };
   if (!match.teamAId || !match.teamBId || !match.winnerId) {
     return { error: "This match hasn't been played yet." };
   }
