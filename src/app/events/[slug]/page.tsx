@@ -25,6 +25,7 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
+import { LIMITS } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -109,6 +110,7 @@ export default async function EventPage({
                     id="name"
                     name="name"
                     placeholder="e.g. The Smashers"
+                    maxLength={LIMITS.teamName}
                     required
                   />
                 </div>
@@ -123,6 +125,7 @@ export default async function EventPage({
                     id="members"
                     name="members"
                     placeholder="e.g. Grandma, Uncle Joe"
+                    maxLength={LIMITS.teamMembers}
                   />
                 </div>
                 <SubmitButton>Add team</SubmitButton>
@@ -209,6 +212,8 @@ export default async function EventPage({
                           name="seed"
                           defaultValue={team.seed ?? ""}
                           placeholder="#"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           className="w-16 text-center"
                           aria-label={`Seed for ${team.name}`}
                         />
@@ -266,6 +271,7 @@ export default async function EventPage({
                     id="activity-name"
                     name="name"
                     placeholder="e.g. Badminton"
+                    maxLength={LIMITS.activityName}
                     required
                   />
                 </div>

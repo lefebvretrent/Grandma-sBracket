@@ -34,6 +34,7 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import type { Match, Team } from "@prisma/client";
+import { LIMITS } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -421,6 +422,7 @@ export default async function ActivityPage({
                         id="category-name"
                         name="name"
                         placeholder="e.g. Vocals"
+                        maxLength={LIMITS.categoryName}
                         required
                       />
                     </div>
@@ -436,6 +438,8 @@ export default async function ActivityPage({
                         name="weight"
                         type="number"
                         step="0.5"
+                        min={0}
+                        max={LIMITS.categoryWeightMax}
                         defaultValue="1"
                         className="w-24 text-center"
                       />
@@ -537,6 +541,8 @@ export default async function ActivityPage({
                                       name={`score-${team.id}-${category.id}`}
                                       type="number"
                                       step="0.5"
+                                      min={-LIMITS.judgedScoreMax}
+                                      max={LIMITS.judgedScoreMax}
                                       defaultValue={existing?.value ?? ""}
                                       className="w-20 mx-auto text-center"
                                       aria-label={`${team.name} ${category.name} score`}
@@ -654,6 +660,8 @@ export default async function ActivityPage({
                         name={`points-${placement}`}
                         type="number"
                         step="0.5"
+                        min={0}
+                        max={LIMITS.placementPointsMax}
                         defaultValue={pointsByPlacement.get(placement) ?? 0}
                         className="w-24 text-center"
                       />

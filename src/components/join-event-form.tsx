@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { joinEvent } from "@/lib/actions";
 import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
+import { LIMITS } from "@/lib/validation";
 
 export function JoinEventForm() {
   const [state, formAction] = useActionState(joinEvent, {});
@@ -23,7 +24,7 @@ export function JoinEventForm() {
 			name="code"
 			placeholder="e.g. A7K2F9"
 			className="uppercase tracking-widest"
-			maxLength={20}
+			maxLength={LIMITS.joinCode}
 			required
 			/>
         </div>

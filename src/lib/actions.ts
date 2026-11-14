@@ -6,12 +6,19 @@ import { nextPowerOfTwo, seedOrder } from "@/lib/bracket";
 import { roundRobinSchedule } from "@/lib/round-robin";
 import { getEditableEvent, grantEditAccess } from "@/lib/permissions";
 import { notifyEventChanged } from "@/lib/realtime-server";
+import {
+  LIMITS,
+  isActivityFormat,
+  parseIntInRange,
+  parseNumberInRange,
+  readText,
+} from "@/lib/validation";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Prisma } from "@prisma/client";
 
 export async function createEvent(formData: FormData) {
-  const name = String(formData.get("name") || "").trim();
+  const name = readText(formData, "name", LIMITS.eventName);
   if (!name) throw new Error("Event name is required");
 
   let slug = generateJoinCode();
@@ -43,7 +50,7 @@ export async function joinEvent(
   _prevState: JoinEventState,
   formData: FormData
 ): Promise<JoinEventState> {
-  const raw = String(formData.get("code") || "").trim();
+  const raw = readText(formData, "code", LIMITS.joinCode);
   if (!raw) return { error: "Enter an event code." };
 
   // Be forgiving if someone pastes the full link, types lowercase, or
@@ -62,9 +69,12 @@ export async function addTeam(eventSlug: string, formData: FormData) {
   const event = await getEditableEvent(eventSlug);
   if (!event) return;
 
-  const name = String(formData.get("name") || "").trim();
-  const members = String(formData.get("members") || "").trim() || null;
+  const name = readText(formData, "name", LIMITS.teamName);
+  const members = readText(formData, "members", LIMITS.teamMembers) || null;
   if (!name) return;
+
+  const teamCount = await prisma.team.count({ where: { eventId: event.id } });
+  if (teamCount >= LIMITS.teamsPerEvent) return;
 
   await prisma.team.create({ data: { name, members, eventId: event.id } });
   await notifyEventChanged(eventSlug);
@@ -124,9 +134,9 @@ export async function setSeed(
   const event = await getEditableEvent(eventSlug);
   if (!event) return;
 
-  const raw = String(formData.get("seed") || "").trim();
-  const parsed = raw === "" ? null : Number(raw);
-  const seed = parsed !== null && !Number.isNaN(parsed) ? parsed : null;
+  // Blank (or anything that isn't a whole number 1-999) clears the seed.
+  // The column is an Int, so a decimal used to crash the request.
+  const seed = parseIntInRange(formData.get("seed"), 1, LIMITS.seedMax);
 
   await prisma.team.updateMany({
     where: { id: teamId, eventId: event.id },
@@ -151,12 +161,14 @@ export async function createActivity(eventSlug: string, formData: FormData) {
   const event = await getEditableEvent(eventSlug);
   if (!event) return;
 
-  const name = String(formData.get("name") || "").trim();
-  const format = String(formData.get("format") || "ELIMINATION") as
-    | "ELIMINATION"
-    | "ROUND_ROBIN"
-    | "WEIGHTED_SCORE";
-  if (!name) return;
+  const name = readText(formData, "name", LIMITS.activityName);
+  const format = String(formData.get("format") || "ELIMINATION");
+  if (!name || !isActivityFormat(format)) return;
+
+  const activityCount = await prisma.activity.count({
+    where: { eventId: event.id },
+  });
+  if (activityCount >= LIMITS.activitiesPerEvent) return;
 
   await prisma.activity.create({
     data: {
@@ -201,9 +213,12 @@ export async function setPlacementPoints(
   if (!(await findActivityInEvent(activityId, event.id))) return;
 
   const entries = [1, 2, 3].map((placement) => {
-    const raw = String(formData.get(`points-${placement}`) ?? "0");
-    const points = Number(raw);
-    return { placement, points: Number.isNaN(points) ? 0 : points };
+    const points = parseNumberInRange(
+      formData.get(`points-${placement}`),
+      0,
+      LIMITS.placementPointsMax
+    );
+    return { placement, points: points ?? 0 };
   });
 
   await prisma.$transaction(
@@ -256,14 +271,16 @@ export async function addCategory(
   if (!event) return;
   if (!(await findActivityInEvent(activityId, event.id))) return;
 
-  const name = String(formData.get("name") || "").trim();
-  const weightRaw = String(formData.get("weight") || "1");
-  const weight = Number(weightRaw);
+  const name = readText(formData, "name", LIMITS.categoryName);
+  const weight =
+    parseNumberInRange(formData.get("weight"), 0, LIMITS.categoryWeightMax) ??
+    1;
   if (!name) return;
 
-  await prisma.category.create({
-    data: { name, weight: Number.isNaN(weight) ? 1 : weight, activityId },
-  });
+  const categoryCount = await prisma.category.count({ where: { activityId } });
+  if (categoryCount >= LIMITS.categoriesPerActivity) return;
+
+  await prisma.category.create({ data: { name, weight, activityId } });
   await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
 }
@@ -308,10 +325,13 @@ export async function setWeightedScores(
   const upserts = [];
   for (const team of activity.event.teams) {
     for (const category of activity.categories) {
-      const raw = formData.get(`score-${team.id}-${category.id}`);
-      if (raw === null || raw === "") continue;
-      const value = Number(raw);
-      if (Number.isNaN(value)) continue;
+      // Blank or invalid boxes are skipped, not zeroed.
+      const value = parseNumberInRange(
+        formData.get(`score-${team.id}-${category.id}`),
+        -LIMITS.judgedScoreMax,
+        LIMITS.judgedScoreMax
+      );
+      if (value === null) continue;
 
       upserts.push(
         prisma.score.upsert({
@@ -699,11 +719,24 @@ export async function reportScore(
     return { error: "Only the event organizer can enter scores." };
   }
 
-  const scoreA = Number(formData.get("scoreA"));
-  const scoreB = Number(formData.get("scoreB"));
+  // Number("") is 0, so a blank box used to count as a zero; and the
+  // columns are Ints, so a decimal crashed the request. Require a whole
+  // number for both.
+  const scoreA = parseIntInRange(
+    formData.get("scoreA"),
+    0,
+    LIMITS.matchScoreMax
+  );
+  const scoreB = parseIntInRange(
+    formData.get("scoreB"),
+    0,
+    LIMITS.matchScoreMax
+  );
 
-  if (Number.isNaN(scoreA) || Number.isNaN(scoreB)) {
-    return { error: "Enter a score for both teams." };
+  if (scoreA === null || scoreB === null) {
+    return {
+      error: `Enter a whole-number score (0–${LIMITS.matchScoreMax}) for both teams.`,
+    };
   }
   if (scoreA === scoreB) {
     return {
@@ -789,11 +822,24 @@ export async function editScore(
     return { error: "Only the event organizer can edit scores." };
   }
 
-  const scoreA = Number(formData.get("scoreA"));
-  const scoreB = Number(formData.get("scoreB"));
+  // Number("") is 0, so a blank box used to count as a zero; and the
+  // columns are Ints, so a decimal crashed the request. Require a whole
+  // number for both.
+  const scoreA = parseIntInRange(
+    formData.get("scoreA"),
+    0,
+    LIMITS.matchScoreMax
+  );
+  const scoreB = parseIntInRange(
+    formData.get("scoreB"),
+    0,
+    LIMITS.matchScoreMax
+  );
 
-  if (Number.isNaN(scoreA) || Number.isNaN(scoreB)) {
-    return { error: "Enter a score for both teams." };
+  if (scoreA === null || scoreB === null) {
+    return {
+      error: `Enter a whole-number score (0–${LIMITS.matchScoreMax}) for both teams.`,
+    };
   }
   if (scoreA === scoreB) {
     return {
