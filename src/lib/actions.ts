@@ -15,7 +15,7 @@ import {
 } from "@/lib/validation";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 export async function createEvent(formData: FormData) {
   const name = readText(formData, "name", LIMITS.eventName);
@@ -707,18 +707,24 @@ async function fillSlot(
 
 export type ScoreActionState = { error?: string };
 
-export async function reportScore(
-  matchId: string,
-  eventSlug: string,
-  activityId: string,
-  _prevState: ScoreActionState,
-  formData: FormData
-): Promise<ScoreActionState> {
-  const event = await getEditableEvent(eventSlug);
-  if (!event) {
-    return { error: "Only the event organizer can enter scores." };
-  }
+// Thrown inside a score transaction to abort it (rolling back anything
+// already written) and show `message` to the organizer.
+class ScoreRejected extends Error {}
 
+// Locks the given match rows until the transaction ends, so two people
+// (or one person double-tapping Save) can't act on the same matches at
+// the same time. A second request waits here, then sees the first
+// one's result when it re-reads the rows.
+async function lockMatches(tx: Prisma.TransactionClient, ids: string[]) {
+  if (ids.length === 0) return;
+  await tx.$queryRaw`SELECT id FROM "Match" WHERE id IN (${Prisma.join(
+    ids
+  )}) ORDER BY id FOR UPDATE`;
+}
+
+function readMatchScores(
+  formData: FormData
+): { scoreA: number; scoreB: number } | { error: string } {
   // Number("") is 0, so a blank box used to count as a zero; and the
   // columns are Ints, so a decimal crashed the request. Require a whole
   // number for both.
@@ -743,19 +749,90 @@ export async function reportScore(
       error: "Scores can't be tied — elimination matches need a winner.",
     };
   }
+  return { scoreA, scoreB };
+}
 
-  const match = await prisma.match.findFirst({
-    where: { id: matchId, activity: { id: activityId, eventId: event.id } },
+// Runs a score transaction, turning ScoreRejected into a friendly error.
+async function runScoreTransaction(
+  work: (tx: Prisma.TransactionClient) => Promise<void>
+): Promise<ScoreActionState> {
+  try {
+    await prisma.$transaction(work);
+    return {};
+  } catch (err) {
+    if (err instanceof ScoreRejected) return { error: err.message };
+    throw err;
+  }
+}
+
+// Grand final, game 1: if the losers-bracket champion (slot B by
+// convention) wins, both finalists now have one loss, so force a
+// winner-take-all rematch.
+async function createResetIfNeeded(
+  tx: Prisma.TransactionClient,
+  match: { bracket: string; round: number; activityId: string },
+  teamAId: string,
+  teamBId: string,
+  winnerId: string
+) {
+  if (match.bracket !== "GRAND_FINAL" || match.round !== 1) return;
+  if (winnerId === teamAId) return; // WB champion won, so the event is over
+
+  await tx.match.create({
+    data: {
+      activityId: match.activityId,
+      bracket: "GRAND_FINAL",
+      round: 2,
+      position: 0,
+      teamAId,
+      teamBId,
+    },
   });
-  if (!match) return { error: "That match doesn't belong to this event." };
-  if (!match.teamAId || !match.teamBId) {
-    return { error: "This match isn't ready for scores yet." };
+}
+
+export async function reportScore(
+  matchId: string,
+  eventSlug: string,
+  activityId: string,
+  _prevState: ScoreActionState,
+  formData: FormData
+): Promise<ScoreActionState> {
+  const event = await getEditableEvent(eventSlug);
+  if (!event) {
+    return { error: "Only the event organizer can enter scores." };
   }
 
-  const winnerId = scoreA > scoreB ? match.teamAId : match.teamBId;
-  const loserId = scoreA > scoreB ? match.teamBId : match.teamAId;
+  const scores = readMatchScores(formData);
+  if ("error" in scores) return scores;
+  const { scoreA, scoreB } = scores;
 
-  await prisma.$transaction(async (tx) => {
+  // Cheap ownership check up front, before taking any locks.
+  const owned = await prisma.match.findFirst({
+    where: { id: matchId, activity: { id: activityId, eventId: event.id } },
+    select: { id: true },
+  });
+  if (!owned) return { error: "That match doesn't belong to this event." };
+
+  const result = await runScoreTransaction(async (tx) => {
+    // Re-read the match *after* locking it. Reading it before the
+    // transaction (as this used to) meant a double submit, or two
+    // organizers scoring at once, could both see "no winner yet",
+    // overwrite each other, and even create two grand-final rematches.
+    await lockMatches(tx, [matchId]);
+    const match = await tx.match.findUniqueOrThrow({ where: { id: matchId } });
+
+    if (match.winnerId) {
+      throw new ScoreRejected(
+        "This match already has a result. Refresh to see it, or use Edit score."
+      );
+    }
+    if (!match.teamAId || !match.teamBId) {
+      throw new ScoreRejected("This match isn't ready for scores yet.");
+    }
+
+    const winnerId = scoreA > scoreB ? match.teamAId : match.teamBId;
+    const loserId = scoreA > scoreB ? match.teamBId : match.teamAId;
+
     await tx.match.update({
       where: { id: matchId },
       data: { scoreA, scoreB, winnerId },
@@ -770,33 +847,18 @@ export async function reportScore(
       );
     }
     if (match.loserNextMatchId && match.loserNextSlot) {
-      await fillSlot(
-        tx,
-        match.loserNextMatchId,
-        match.loserNextSlot,
-        loserId
-      );
+      await fillSlot(tx, match.loserNextMatchId, match.loserNextSlot, loserId);
     }
 
-    // Grand final, game 1: if the losers-bracket champion (slot B by
-    // convention) wins, both finalists now have one loss — force a
-    // winner-take-all rematch.
-    if (match.bracket === "GRAND_FINAL" && match.round === 1) {
-      const wbChampionWon = winnerId === match.teamAId;
-      if (!wbChampionWon) {
-        await tx.match.create({
-          data: {
-            activityId,
-            bracket: "GRAND_FINAL",
-            round: 2,
-            position: 0,
-            teamAId: match.teamAId,
-            teamBId: match.teamBId,
-          },
-        });
-      }
-    }
+    await createResetIfNeeded(
+      tx,
+      match,
+      match.teamAId,
+      match.teamBId,
+      winnerId
+    );
   });
+  if (result.error) return result;
 
   await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
@@ -822,67 +884,55 @@ export async function editScore(
     return { error: "Only the event organizer can edit scores." };
   }
 
-  // Number("") is 0, so a blank box used to count as a zero; and the
-  // columns are Ints, so a decimal crashed the request. Require a whole
-  // number for both.
-  const scoreA = parseIntInRange(
-    formData.get("scoreA"),
-    0,
-    LIMITS.matchScoreMax
-  );
-  const scoreB = parseIntInRange(
-    formData.get("scoreB"),
-    0,
-    LIMITS.matchScoreMax
-  );
+  const scores = readMatchScores(formData);
+  if ("error" in scores) return scores;
+  const { scoreA, scoreB } = scores;
 
-  if (scoreA === null || scoreB === null) {
-    return {
-      error: `Enter a whole-number score (0–${LIMITS.matchScoreMax}) for both teams.`,
-    };
-  }
-  if (scoreA === scoreB) {
-    return {
-      error: "Scores can't be tied — elimination matches need a winner.",
-    };
-  }
-
-  const match = await prisma.match.findFirst({
+  const owned = await prisma.match.findFirst({
     where: { id: matchId, activity: { id: activityId, eventId: event.id } },
+    select: { winnerNextMatchId: true, loserNextMatchId: true },
   });
-  if (!match) return { error: "That match doesn't belong to this event." };
-  if (!match.teamAId || !match.teamBId || !match.winnerId) {
-    return { error: "This match hasn't been played yet." };
-  }
-
-  const newWinnerId = scoreA > scoreB ? match.teamAId : match.teamBId;
-  const newLoserId = scoreA > scoreB ? match.teamBId : match.teamAId;
+  if (!owned) return { error: "That match doesn't belong to this event." };
 
   const CANT_EDIT =
     "Can't change this result — it's already affected later matches. Regenerate the bracket if you need to redo further back.";
 
-  if (match.winnerNextMatchId) {
-    const next = await prisma.match.findUnique({
-      where: { id: match.winnerNextMatchId },
-      select: { winnerId: true },
-    });
-    if (next?.winnerId) return { error: CANT_EDIT };
-  }
-  if (match.loserNextMatchId) {
-    const next = await prisma.match.findUnique({
-      where: { id: match.loserNextMatchId },
-      select: { winnerId: true },
-    });
-    if (next?.winnerId) return { error: CANT_EDIT };
-  }
-  if (match.bracket === "GRAND_FINAL" && match.round === 1) {
-    const resetExists = await prisma.match.findFirst({
-      where: { activityId, bracket: "GRAND_FINAL", round: 2 },
-    });
-    if (resetExists) return { error: CANT_EDIT };
-  }
+  const result = await runScoreTransaction(async (tx) => {
+    // Lock this match and the two it feeds, *then* check that neither
+    // has been played. These checks used to run before the transaction,
+    // so a downstream match could be scored in between the check and
+    // the edit, leaving the bracket inconsistent.
+    await lockMatches(
+      tx,
+      [matchId, owned.winnerNextMatchId, owned.loserNextMatchId].filter(
+        (id): id is string => !!id
+      )
+    );
+    const match = await tx.match.findUniqueOrThrow({ where: { id: matchId } });
 
-  await prisma.$transaction(async (tx) => {
+    if (!match.teamAId || !match.teamBId || !match.winnerId) {
+      throw new ScoreRejected("This match hasn't been played yet.");
+    }
+
+    for (const nextId of [match.winnerNextMatchId, match.loserNextMatchId]) {
+      if (!nextId) continue;
+      const next = await tx.match.findUnique({
+        where: { id: nextId },
+        select: { winnerId: true },
+      });
+      if (next?.winnerId) throw new ScoreRejected(CANT_EDIT);
+    }
+    if (match.bracket === "GRAND_FINAL" && match.round === 1) {
+      const resetExists = await tx.match.findFirst({
+        where: { activityId, bracket: "GRAND_FINAL", round: 2 },
+        select: { id: true },
+      });
+      if (resetExists) throw new ScoreRejected(CANT_EDIT);
+    }
+
+    const newWinnerId = scoreA > scoreB ? match.teamAId : match.teamBId;
+    const newLoserId = scoreA > scoreB ? match.teamBId : match.teamAId;
+
     await tx.match.update({
       where: { id: matchId },
       data: { scoreA, scoreB, winnerId: newWinnerId },
@@ -905,22 +955,15 @@ export async function editScore(
       );
     }
 
-    if (match.bracket === "GRAND_FINAL" && match.round === 1) {
-      const wbChampionWon = newWinnerId === match.teamAId;
-      if (!wbChampionWon) {
-        await tx.match.create({
-          data: {
-            activityId,
-            bracket: "GRAND_FINAL",
-            round: 2,
-            position: 0,
-            teamAId: match.teamAId,
-            teamBId: match.teamBId,
-          },
-        });
-      }
-    }
+    await createResetIfNeeded(
+      tx,
+      match,
+      match.teamAId,
+      match.teamBId,
+      newWinnerId
+    );
   });
+  if (result.error) return result;
 
   await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
