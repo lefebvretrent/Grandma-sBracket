@@ -26,6 +26,8 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { MatchCard } from "@/components/bracket/match-card";
 import { BracketColumns } from "@/components/bracket/bracket-columns";
 import { UpNext } from "@/components/bracket/up-next";
+import { StatusBadge } from "@/components/status-badge";
+import { activityStatus } from "@/lib/activity-status";
 import { Input } from "@/components/ui/input";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import {
@@ -240,9 +242,12 @@ export default async function ActivityPage({
           >
             ← {activity.event.name}
           </Link>
-          <h1 className="text-2xl font-medium text-stone-900">
-            {activity.name}
-          </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-medium text-stone-900">
+              {activity.name}
+            </h1>
+            <StatusBadge status={activityStatus(activity, teams)} />
+          </div>
         </div>
 
         {activity.format === "ELIMINATION" && isEditor && (

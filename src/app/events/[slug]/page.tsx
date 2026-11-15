@@ -26,6 +26,8 @@ import {
   CardContent,
 } from "@/components/ui/card";
 import { LIMITS } from "@/lib/validation";
+import { StatusBadge } from "@/components/status-badge";
+import { activityStatus } from "@/lib/activity-status";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +42,26 @@ export default async function EventPage({
     where: { slug },
     include: {
       teams: { orderBy: [{ seed: "asc" }, { createdAt: "asc" }] },
-      activities: { orderBy: { createdAt: "asc" } },
+      activities: {
+        orderBy: { createdAt: "asc" },
+        // matches and scores are only needed for the status badges
+        include: {
+          matches: {
+            select: {
+              bracket: true,
+              round: true,
+              teamAId: true,
+              teamBId: true,
+              winnerId: true,
+              scoreA: true,
+              scoreB: true,
+            },
+          },
+          categories: {
+            select: { id: true, scores: { select: { teamId: true } } },
+          },
+        },
+      },
     },
   });
 
@@ -321,12 +342,18 @@ export default async function EventPage({
                         <span className="font-medium text-stone-900">
                           {activity.name}
                         </span>
-                        <span className="text-xs text-stone-500">
-                          {activity.format === "ELIMINATION" &&
-                            "Elimination bracket"}
-                          {activity.format === "ROUND_ROBIN" && "Round robin"}
-                          {activity.format === "WEIGHTED_SCORE" &&
-                            "Judged scoring"}
+                        <span className="flex items-center gap-2 text-xs text-stone-500">
+                          <span className="hidden sm:inline">
+                            {activity.format === "ELIMINATION" &&
+                              "Elimination bracket"}
+                            {activity.format === "ROUND_ROBIN" &&
+                              "Round robin"}
+                            {activity.format === "WEIGHTED_SCORE" &&
+                              "Judged scoring"}
+                          </span>
+                          <StatusBadge
+                            status={activityStatus(activity, event.teams)}
+                          />
                         </span>
                       </Link>
                       {isEditor && (

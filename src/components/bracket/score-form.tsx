@@ -31,9 +31,7 @@ export function ScoreForm({
         <ScoreRow name="scoreA" teamName={teamAName} />
         <ScoreRow name="scoreB" teamName={teamBName} />
       </div>
-      {state?.error && (
-        <p className="text-sm text-red-600">{state.error}</p>
-      )}
+      {state?.error && <p className="text-sm text-red-600">{state.error}</p>}
       <SubmitButton size="sm" className="self-end">
         Save score
       </SubmitButton>
