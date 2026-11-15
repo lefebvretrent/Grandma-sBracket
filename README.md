@@ -95,6 +95,25 @@ src/app/                   pages and routes
 Adding a new game type later just means adding a new format value and a
 small UI — Event and Team don't need to change.
 
+## Tests
+
+```bash
+npm test            # run everything once
+npm run test:watch  # re-run on save
+npm run typecheck   # TypeScript check
+```
+
+- `src/lib/__tests__/*.test.ts` cover the pure logic: seeding, round
+  robin schedules, judged scoring, standings and input validation. They
+  need no database.
+- `bracket-flow.db.test.ts` plays whole double-elimination brackets
+  (2 to 17 teams) from start to finish against a real database. It only
+  runs when `TEST_DATABASE_URL` is set and uses that database, never the
+  `DATABASE_URL` in `.env`. **Point it at a throwaway local Postgres,
+  never at production.** Without it those tests are skipped.
+- GitHub Actions (`.github/workflows/ci.yml`) runs lint, the type check
+  and all tests, including the database ones, on every pull request.
+
 ## Applying database changes in production
 
 Vercel's build only runs `prisma generate`; it does **not** apply
