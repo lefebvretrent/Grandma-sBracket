@@ -1,8 +1,10 @@
-# Family Games Bracket
+# Grandma's Bracket
 
-Bracket + scoring app for family field day events. Supports single-elimination
-brackets (with automatic byes) and weighted-score judging (e.g. karaoke),
-all under one flexible Event → Activity → (Match | Score) data model.
+"Brackets made so easy, even your grandma could do it." A bracket and
+scoring app for family field day events: double-elimination brackets
+(with automatic byes), round robins and weighted-score judging (e.g.
+karaoke), with an overall leaderboard and a big-screen presenter view.
+All under one flexible Event → Activity → (Match | Score) data model.
 
 ## Stack
 
@@ -124,3 +126,27 @@ npx prisma migrate deploy
   the server. Supabase Realtime must allow public broadcast channels
   (the default; see Project Settings → Realtime).
 - **Input limits** live in `src/lib/validation.ts`.
+
+## Branding, link previews and icons
+
+- Site name, tagline and description live in `src/lib/site.ts`.
+- The browser-tab icon, home-screen icon and the image shown when a
+  link is shared are drawn in code from one logo
+  (`src/app/brand-mark.tsx` → `icon.tsx`, `apple-icon.tsx`,
+  `opengraph-image.tsx`).
+- Link previews need the site's public address. On Vercel this is
+  picked up automatically; if you add a custom domain, set
+  `NEXT_PUBLIC_SITE_URL` (e.g. `https://grandmasbracket.com`) in Vercel's
+  environment variables.
+
+## Keeping the free Supabase project awake
+
+Supabase pauses free-tier projects after about a week with no database
+activity, which takes the site down until you restore the project in the
+Supabase dashboard. `vercel.json` schedules a daily call to
+`/api/keep-alive`, which runs a trivial query so the project always
+counts as active. Nothing to set up: Vercel reads `vercel.json` on the
+next deploy (see Project → Settings → Cron Jobs to confirm it's listed).
+Optionally add a `CRON_SECRET` environment variable in Vercel to stop
+anyone else calling the endpoint. It can't wake a project that is
+already paused, so restore it once by hand first if needed.
