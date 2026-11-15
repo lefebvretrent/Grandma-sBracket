@@ -133,8 +133,14 @@ npx prisma migrate deploy
 ## Security model
 
 - **No accounts.** Creating an event sets an httpOnly cookie holding that
-  event's secret `editToken` (256 random bits). Only that browser can
-  edit; everyone else with the code or link can view.
+  event's secret `editToken` (256 random bits). Everyone else with the
+  code or link can only view.
+- **Organizer link.** The event page shows organizers a secret link
+  (`/events/<code>/organizer#<secret>`) that gives any browser that opens
+  it the same edit access: for a second device, a co-host, or getting
+  back in after clearing cookies. The secret sits after the `#`, which
+  browsers never send to the server, so it stays out of logs. "Reset
+  link" issues a new secret and cuts off every other device.
 - **Every server action is scoped to the organizer's own event**
   (`getEditableEvent` in `src/lib/permissions.ts`). Ids passed from the
   browser are never trusted on their own.

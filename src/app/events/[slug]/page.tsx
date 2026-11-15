@@ -10,8 +10,9 @@ import {
   createActivity,
   deleteActivity,
   deleteEvent,
+  resetOrganizerLink,
 } from "@/lib/actions";
-import { canEdit } from "@/lib/permissions";
+import { getEditTokenForEditor } from "@/lib/permissions";
 import { SubmitButton } from "@/components/submit-button";
 import { RemoveTeamForm } from "@/components/remove-team-form";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
@@ -19,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { RecentEventsTracker } from "@/components/recent-events-tracker";
 import { EventCodeCard } from "@/components/event-code-card";
+import { OrganizerLinkCard } from "@/components/organizer-link-card";
 import {
   Card,
   CardHeader,
@@ -68,13 +70,16 @@ export default async function EventPage({
 
   if (!event) notFound();
 
-  const isEditor = await canEdit(event.slug);
+  // Non-null only in a browser that already holds the organizer secret.
+  const editToken = await getEditTokenForEditor(event.slug);
+  const isEditor = editToken !== null;
 
   const addTeamAction = addTeam.bind(null, event.slug);
   const randomizeAction = randomizeSeeds.bind(null, event.slug);
   const clearAction = clearSeeds.bind(null, event.slug);
   const createActivityAction = createActivity.bind(null, event.slug);
   const deleteEventAction = deleteEvent.bind(null, event.slug);
+  const resetLinkAction = resetOrganizerLink.bind(null, event.slug);
 
   return (
     <main className="min-h-screen bg-stone-50 p-6">
@@ -110,6 +115,14 @@ export default async function EventPage({
         </div>
 
         <EventCodeCard code={event.slug} />
+
+        {editToken && (
+          <OrganizerLinkCard
+            slug={event.slug}
+            token={editToken}
+            resetAction={resetLinkAction}
+          />
+        )}
 
         {isEditor && (
           <Card>
