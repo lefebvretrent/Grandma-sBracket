@@ -1,4 +1,6 @@
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import { renderSVG } from "uqr";
 import { prisma } from "@/lib/prisma";
 import { computeStandings } from "@/lib/standings";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
@@ -27,6 +29,15 @@ export default async function PresentPage({
   });
 
   if (!event) notFound();
+
+  // "Join in" corner: the address people are watching this on, the event
+  // code, and a QR code that opens the event on their phone.
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("host") ?? "";
+  const protocol = requestHeaders.get("x-forwarded-proto") ?? "https";
+  const joinQr = renderSVG(`${protocol}://${host}/events/${event.slug}`, {
+    border: 1,
+  });
 
   const rows = computeStandings(event.teams, event.activities);
   const hasAnyPoints = rows.some((r) => r.totalPoints > 0);
@@ -82,6 +93,30 @@ export default async function PresentPage({
           })}
         </div>
       )}
+
+      <div className="mt-auto pt-12 w-full flex items-end justify-between gap-6">
+        <div>
+          <p className="text-xl text-stone-400">
+            Follow along at{" "}
+            <span className="font-medium text-white">{host}</span>
+          </p>
+          <p className="text-xl text-stone-400">
+            Event code{" "}
+            <span className="font-bold tracking-[0.2em] text-amber-400">
+              {event.slug}
+            </span>
+          </p>
+        </div>
+        {/* A generated data: URL, so next/image has nothing to optimize. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`data:image/svg+xml;utf8,${encodeURIComponent(joinQr)}`}
+          alt="QR code to open this event"
+          width={144}
+          height={144}
+          className="rounded-xl bg-white p-1"
+        />
+      </div>
     </main>
   );
 }
