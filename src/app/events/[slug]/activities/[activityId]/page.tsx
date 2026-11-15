@@ -24,6 +24,7 @@ import {
 import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { MatchCard } from "@/components/bracket/match-card";
+import { BracketColumns } from "@/components/bracket/bracket-columns";
 import { Input } from "@/components/ui/input";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import {
@@ -59,44 +60,6 @@ function groupByRound(matches: MatchWithTeams[]) {
     rounds.get(match.round)!.push(match);
   }
   return rounds;
-}
-
-function BracketColumns({
-  rounds,
-  label,
-  slug,
-  activityId,
-  isEditor,
-}: {
-  rounds: Map<number, MatchWithTeams[]>;
-  label: (round: number, total: number) => string;
-  slug: string;
-  activityId: string;
-  isEditor: boolean;
-}) {
-  const total = rounds.size;
-  return (
-    <div className="flex gap-8 overflow-x-auto pb-4">
-      {Array.from(rounds.entries()).map(([round, matches]) => (
-        <div key={round} className="flex flex-col gap-6 min-w-64">
-          <p className="text-sm font-medium text-stone-500">
-            {label(round, total)}
-          </p>
-          <div className="flex flex-1 flex-col justify-around gap-6">
-            {matches.map((match) => (
-              <MatchCard
-                key={match.id}
-                match={match}
-                eventSlug={slug}
-                activityId={activityId}
-                isEditor={isEditor}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 // Round robin doesn't have bracket "progression" like elimination, so
