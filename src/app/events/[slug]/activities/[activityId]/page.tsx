@@ -8,7 +8,13 @@ import {
   addCategory,
   deleteCategory,
   setWeightedScores,
+  setActivityTeams,
 } from "@/lib/actions";
+import { playingTeams, bracketDrift } from "@/lib/participants";
+import {
+  ActivityTeamsCard,
+  BracketDriftNotice,
+} from "@/components/activity-teams";
 import { canEdit } from "@/lib/permissions";
 import { computeEliminationPlacements, placementLabel } from "@/lib/standings";
 import {
@@ -149,7 +155,8 @@ export default async function ActivityPage({
   const activity = await prisma.activity.findUnique({
     where: { id: activityId },
     include: {
-      event: { include: { teams: true } },
+      event: { include: { teams: { orderBy: { createdAt: "asc" } } } },
+      excludedTeams: { select: { id: true } },
       placementPoints: { orderBy: { placement: "asc" } },
       categories: {
         orderBy: { name: "asc" },
@@ -166,9 +173,21 @@ export default async function ActivityPage({
 
   const isEditor = await canEdit(slug);
 
-  const teams = activity.event.teams;
+  // Everyone in the event, and the subset playing this particular game.
+  const allTeams = activity.event.teams;
+  const teams = playingTeams(allTeams, activity);
   const teamCount = teams.length;
-  const teamsById = new Map<string, string>(teams.map((t) => [t.id, t.name]));
+  const teamsById = new Map<string, string>(
+    allTeams.map((t) => [t.id, t.name])
+  );
+  const setTeamsAction = setActivityTeams.bind(null, activity.id, slug);
+
+  // Has the team list changed since the bracket/schedule was generated?
+  const drift = bracketDrift(teams, activity.matches);
+  const driftExtra = drift.extraIds.map((id) => ({
+    id,
+    name: teamsById.get(id) ?? "Unknown team",
+  }));
 
   // --- Elimination bracket data ---
   const generateAction = generateBracket.bind(null, activity.id, slug);
@@ -262,13 +281,32 @@ export default async function ActivityPage({
           </h1>
         </div>
 
+        {isEditor && allTeams.length > 0 && (
+          <ActivityTeamsCard
+            teams={allTeams}
+            playingIds={new Set(teams.map((t) => t.id))}
+            hasMatches={activity.matches.length > 0}
+            action={setTeamsAction}
+          />
+        )}
+
+        {activity.format !== "WEIGHTED_SCORE" &&
+          activity.matches.length > 0 && (
+            <BracketDriftNotice
+              missing={drift.missing}
+              extra={driftExtra}
+              isEditor={isEditor}
+              noun={activity.format === "ELIMINATION" ? "bracket" : "schedule"}
+            />
+          )}
+
         {activity.format === "ELIMINATION" && isEditor && (
           <Card>
             <CardHeader>
               <CardTitle>Double-elimination bracket</CardTitle>
               <CardDescription>
                 {teamCount < 2
-                  ? "Add at least 2 teams to the event before generating a bracket."
+                  ? "This game needs at least 2 teams before you can generate a bracket."
                   : hasMatches
                     ? "Regenerating will reset any scores you've already entered."
                     : `Ready to generate a bracket for ${teamCount} teams. Every team gets a second chance in the losers bracket before the grand final.`}
@@ -309,7 +347,7 @@ export default async function ActivityPage({
               <CardTitle>Round robin schedule</CardTitle>
               <CardDescription>
                 {teamCount < 2
-                  ? "Add at least 2 teams to the event before generating a schedule."
+                  ? "This game needs at least 2 teams before you can generate a schedule."
                   : hasMatches
                     ? "Regenerating will reset any scores you've already entered."
                     : `Ready to generate a schedule for ${teamCount} teams — everyone plays everyone once.`}

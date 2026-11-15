@@ -30,6 +30,7 @@ export default async function StandingsPage({
       activities: {
         include: {
           matches: true,
+          excludedTeams: { select: { id: true } },
           placementPoints: true,
           categories: { include: { scores: true } },
         },

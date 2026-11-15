@@ -1,6 +1,7 @@
 import type { Match } from "@prisma/client";
 import { computeWeightedPlacements } from "@/lib/weighted-score";
 import { computeRoundRobinPlacements } from "@/lib/round-robin";
+import { playingTeams } from "@/lib/participants";
 
 // Works out 1st/2nd/3rd place for a completed double-elimination
 // bracket. Returns an empty map until the grand final has a winner.
@@ -69,6 +70,7 @@ type ActivityForStandings = {
     scores: { teamId: string; value: number }[];
   }[];
   placementPoints: { placement: number; points: number }[];
+  excludedTeams?: { id: string }[]; // teams sitting this game out
 };
 
 // Sums placement points across every activity for every team, sorted
@@ -83,6 +85,7 @@ export function computeStandings(
   teams.forEach((t) => totals.set(t.id, 0));
 
   for (const activity of activities) {
+    const playing = playingTeams(teams, activity);
     let placements: Map<string, number>;
 
     if (activity.format === "ELIMINATION") {
@@ -96,12 +99,12 @@ export function computeStandings(
         }))
       );
       placements = computeWeightedPlacements(
-        teams,
+        playing,
         activity.categories,
         flatScores
       );
     } else if (activity.format === "ROUND_ROBIN") {
-      placements = computeRoundRobinPlacements(teams, activity.matches);
+      placements = computeRoundRobinPlacements(playing, activity.matches);
     } else {
       continue;
     }
