@@ -72,3 +72,32 @@ export async function getEditableEvent(
 
   return { id: event.id, slug: event.slug };
 }
+
+// Turns the current browser into an organizer if `token` is this
+// event's secret. This is what the organizer link does: it lets the
+// organizer use a second device, share editing with a co-host, or get
+// back in after losing the cookie. Returns false for a wrong token or an
+// unknown event (deliberately the same answer for both).
+export async function claimEditAccess(
+  eventSlug: string,
+  token: string
+): Promise<boolean> {
+  const event = await prisma.event.findUnique({
+    where: { slug: eventSlug },
+    select: { slug: true, editToken: true },
+  });
+  if (!event || !token || !tokensMatch(token, event.editToken)) return false;
+
+  await grantEditAccess(event.slug, event.editToken);
+  return true;
+}
+
+// The secret itself, but only for a browser that already holds it.
+// Used to show the organizer their shareable organizer link.
+export async function getEditTokenForEditor(
+  eventSlug: string
+): Promise<string | null> {
+  if (!(await getEditableEvent(eventSlug))) return null;
+  const cookieStore = await cookies();
+  return cookieStore.get(editCookieName(eventSlug))?.value ?? null;
+}

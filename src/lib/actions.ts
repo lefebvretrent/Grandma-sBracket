@@ -5,6 +5,7 @@ import { generateJoinCode } from "@/lib/join-code";
 import { nextPowerOfTwo, seedOrder } from "@/lib/bracket";
 import { roundRobinSchedule } from "@/lib/round-robin";
 import {
+  claimEditAccess,
   generateEditToken,
   getEditableEvent,
   grantEditAccess,
@@ -48,6 +49,48 @@ export async function deleteEvent(eventSlug: string) {
   await prisma.event.delete({ where: { id: event.id } });
   await notifyEventChanged(eventSlug);
   redirect("/");
+}
+
+// --- Organizer link (co-hosts, second devices, getting back in) ---
+
+export type ClaimAccessState = { error?: string };
+
+// Called by the organizer-link page with the secret from the link. If
+// it matches, this browser gets the organizer cookie and is sent to the
+// event page.
+export async function claimOrganizerAccess(
+  eventSlug: string,
+  token: string
+): Promise<ClaimAccessState> {
+  const valid =
+    typeof eventSlug === "string" &&
+    typeof token === "string" &&
+    token.length > 0 &&
+    token.length <= 200;
+
+  if (!valid || !(await claimEditAccess(eventSlug, token))) {
+    return {
+      error:
+        "This organizer link isn't valid. It may have been reset, or part of it got cut off when it was copied.",
+    };
+  }
+
+  redirect(`/events/${eventSlug}`);
+}
+
+// Swaps the event's secret for a fresh one. Every old organizer link
+// and every other device's edit access stops working; the browser that
+// pressed the button keeps access.
+export async function resetOrganizerLink(eventSlug: string) {
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
+
+  const editToken = generateEditToken();
+  await prisma.event.update({ where: { id: event.id }, data: { editToken } });
+  await grantEditAccess(eventSlug, editToken);
+
+  await notifyEventChanged(eventSlug);
+  revalidatePath(`/events/${eventSlug}`);
 }
 
 export type JoinEventState = { error?: string };
