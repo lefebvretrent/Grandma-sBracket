@@ -88,14 +88,46 @@ export async function addTeam(eventSlug: string, formData: FormData) {
   revalidatePath(`/events/${eventSlug}`);
 }
 
-export async function deleteTeam(teamId: string, eventSlug: string) {
+export type RemoveTeamState = { error?: string };
+
+// Removing a team that's already in a bracket or schedule is refused.
+// The database would blank that team out of its matches, leaving them
+// with one side empty and no winner, so the game could never finish.
+export async function deleteTeam(
+  teamId: string,
+  eventSlug: string,
+  _prevState: RemoveTeamState
+): Promise<RemoveTeamState> {
+  void _prevState;
   const event = await getEditableEvent(eventSlug);
-  if (!event) return;
+  if (!event) return { error: "Only the event organizer can remove teams." };
+
+  const team = await prisma.team.findFirst({
+    where: { id: teamId, eventId: event.id },
+    select: { name: true },
+  });
+  if (!team) return {};
+
+  const gamesUsingTeam = await prisma.activity.findMany({
+    where: {
+      eventId: event.id,
+      matches: { some: { OR: [{ teamAId: teamId }, { teamBId: teamId }] } },
+    },
+    select: { name: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (gamesUsingTeam.length > 0) {
+    const games = gamesUsingTeam.map((g) => g.name).join(", ");
+    return {
+      error: `${team.name} is already in: ${games}. Untick it under "Teams in this game" there and regenerate, or delete those games, then remove it.`,
+    };
+  }
 
   // deleteMany + eventId so a teamId from another event matches nothing.
   await prisma.team.deleteMany({ where: { id: teamId, eventId: event.id } });
   await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}`);
+  return {};
 }
 
 // Shuffles all teams in the event and assigns seeds 1..N based on the
