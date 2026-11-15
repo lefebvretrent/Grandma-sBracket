@@ -62,9 +62,7 @@ export function MatchCard({
       />
 
       {match.isBye && (
-        <p className="text-xs text-stone-400">
-          Bye — advances automatically
-        </p>
+        <p className="text-xs text-stone-400">Bye — advances automatically</p>
       )}
       {needsScore && !isEditor && (
         <p className="text-xs text-stone-400">Awaiting score</p>

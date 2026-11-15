@@ -30,6 +30,10 @@ import {
 import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { MatchCard } from "@/components/bracket/match-card";
+import { BracketColumns } from "@/components/bracket/bracket-columns";
+import { UpNext } from "@/components/bracket/up-next";
+import { StatusBadge } from "@/components/status-badge";
+import { activityStatus } from "@/lib/activity-status";
 import { Input } from "@/components/ui/input";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import {
@@ -65,44 +69,6 @@ function groupByRound(matches: MatchWithTeams[]) {
     rounds.get(match.round)!.push(match);
   }
   return rounds;
-}
-
-function BracketColumns({
-  rounds,
-  label,
-  slug,
-  activityId,
-  isEditor,
-}: {
-  rounds: Map<number, MatchWithTeams[]>;
-  label: (round: number, total: number) => string;
-  slug: string;
-  activityId: string;
-  isEditor: boolean;
-}) {
-  const total = rounds.size;
-  return (
-    <div className="flex gap-8 overflow-x-auto pb-4">
-      {Array.from(rounds.entries()).map(([round, matches]) => (
-        <div key={round} className="flex flex-col gap-6 min-w-64">
-          <p className="text-sm font-medium text-stone-500">
-            {label(round, total)}
-          </p>
-          <div className="flex flex-1 flex-col justify-around gap-6">
-            {matches.map((match) => (
-              <MatchCard
-                key={match.id}
-                match={match}
-                eventSlug={slug}
-                activityId={activityId}
-                isEditor={isEditor}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
 }
 
 // Round robin doesn't have bracket "progression" like elimination, so
@@ -201,6 +167,25 @@ export default async function ActivityPage({
   const wbRounds = groupByRound(wbMatches);
   const lbRounds = groupByRound(lbMatches);
 
+  // Matches with both teams in place and no result yet (winners
+  // bracket first): the "Up next" list for an elimination game.
+  const upNext =
+    activity.format === "ELIMINATION"
+      ? [...wbMatches, ...lbMatches, ...gfMatches]
+          .filter((m) => !m.isBye && m.teamAId && m.teamBId && !m.winnerId)
+          .map((match) => ({
+            match,
+            label:
+              match.bracket === "WINNERS"
+                ? `Winners · ${wbRoundLabel(match.round, wbRounds.size)}`
+                : match.bracket === "LOSERS"
+                  ? lbRoundLabel(match.round, lbRounds.size)
+                  : match.round === 1
+                    ? "Grand Final"
+                    : "Grand Final — Reset",
+          }))
+      : [];
+
   // --- Round robin data ---
   const generateRoundRobinAction = generateRoundRobin.bind(
     null,
@@ -276,9 +261,12 @@ export default async function ActivityPage({
           >
             ← {activity.event.name}
           </Link>
-          <h1 className="text-2xl font-medium text-stone-900">
-            {activity.name}
-          </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-medium text-stone-900">
+              {activity.name}
+            </h1>
+            <StatusBadge status={activityStatus(activity, teams)} />
+          </div>
         </div>
 
         {isEditor && allTeams.length > 0 && (
@@ -667,6 +655,13 @@ export default async function ActivityPage({
             )}
           </>
         )}
+
+        <UpNext
+          items={upNext}
+          slug={slug}
+          activityId={activity.id}
+          isEditor={isEditor}
+        />
 
         {supportsPlacements && (
           <Card>
