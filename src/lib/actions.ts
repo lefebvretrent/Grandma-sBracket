@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { generateJoinCode } from "@/lib/join-code";
 import { nextPowerOfTwo, seedOrder } from "@/lib/bracket";
 import { roundRobinSchedule } from "@/lib/round-robin";
+import { playingTeams } from "@/lib/participants";
 import {
   generateEditToken,
   getEditableEvent,
@@ -87,14 +88,46 @@ export async function addTeam(eventSlug: string, formData: FormData) {
   revalidatePath(`/events/${eventSlug}`);
 }
 
-export async function deleteTeam(teamId: string, eventSlug: string) {
+export type RemoveTeamState = { error?: string };
+
+// Removing a team that's already in a bracket or schedule is refused.
+// The database would blank that team out of its matches, leaving them
+// with one side empty and no winner, so the game could never finish.
+export async function deleteTeam(
+  teamId: string,
+  eventSlug: string,
+  _prevState: RemoveTeamState
+): Promise<RemoveTeamState> {
+  void _prevState;
   const event = await getEditableEvent(eventSlug);
-  if (!event) return;
+  if (!event) return { error: "Only the event organizer can remove teams." };
+
+  const team = await prisma.team.findFirst({
+    where: { id: teamId, eventId: event.id },
+    select: { name: true },
+  });
+  if (!team) return {};
+
+  const gamesUsingTeam = await prisma.activity.findMany({
+    where: {
+      eventId: event.id,
+      matches: { some: { OR: [{ teamAId: teamId }, { teamBId: teamId }] } },
+    },
+    select: { name: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (gamesUsingTeam.length > 0) {
+    const games = gamesUsingTeam.map((g) => g.name).join(", ");
+    return {
+      error: `${team.name} is already in: ${games}. Untick it under "Teams in this game" there and regenerate, or delete those games, then remove it.`,
+    };
+  }
 
   // deleteMany + eventId so a teamId from another event matches nothing.
   await prisma.team.deleteMany({ where: { id: teamId, eventId: event.id } });
   await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}`);
+  return {};
 }
 
 // Shuffles all teams in the event and assigns seeds 1..N based on the
@@ -206,6 +239,37 @@ export async function deleteActivity(activityId: string, eventSlug: string) {
   });
   await notifyEventChanged(eventSlug);
   revalidatePath(`/events/${eventSlug}`);
+  revalidatePath(`/events/${eventSlug}/standings`);
+}
+
+// Saves the "Teams in this game" checklist. Ticked teams play; every
+// other team in the event is recorded as sitting this game out. An
+// existing bracket or schedule isn't touched: the game's page shows a
+// warning until the organizer regenerates it.
+export async function setActivityTeams(
+  activityId: string,
+  eventSlug: string,
+  formData: FormData
+) {
+  const event = await getEditableEvent(eventSlug);
+  if (!event) return;
+  if (!(await findActivityInEvent(activityId, event.id))) return;
+
+  // Only ids of this event's own teams count; anything else is ignored.
+  const ticked = new Set(formData.getAll("team").map(String));
+  const teams = await prisma.team.findMany({
+    where: { eventId: event.id },
+    select: { id: true },
+  });
+  const excluded = teams.filter((team) => !ticked.has(team.id));
+
+  await prisma.activity.update({
+    where: { id: activityId },
+    data: { excludedTeams: { set: excluded.map(({ id }) => ({ id })) } },
+  });
+
+  await notifyEventChanged(eventSlug);
+  revalidatePath(`/events/${eventSlug}/activities/${activityId}`);
   revalidatePath(`/events/${eventSlug}/standings`);
 }
 
@@ -323,13 +387,14 @@ export async function setWeightedScores(
     where: { id: activityId, eventId: event.id },
     include: {
       event: { include: { teams: true } },
+      excludedTeams: { select: { id: true } },
       categories: true,
     },
   });
   if (!activity) return;
 
   const upserts = [];
-  for (const team of activity.event.teams) {
+  for (const team of playingTeams(activity.event.teams, activity)) {
     for (const category of activity.categories) {
       // Blank or invalid boxes are skipped, not zeroed.
       const value = parseNumberInRange(
@@ -371,11 +436,14 @@ export async function generateRoundRobin(
 
   const activity = await prisma.activity.findFirst({
     where: { id: activityId, eventId: event.id },
-    include: { event: { include: { teams: true } } },
+    include: {
+      event: { include: { teams: true } },
+      excludedTeams: { select: { id: true } },
+    },
   });
   if (!activity) return;
 
-  const teams = activity.event.teams;
+  const teams = playingTeams(activity.event.teams, activity);
   if (teams.length < 2) return;
 
   const schedule = roundRobinSchedule(teams.map((t) => t.id));
@@ -437,11 +505,14 @@ export async function generateBracket(activityId: string, eventSlug: string) {
 
   const activity = await prisma.activity.findFirst({
     where: { id: activityId, eventId: event.id },
-    include: { event: { include: { teams: true } } },
+    include: {
+      event: { include: { teams: true } },
+      excludedTeams: { select: { id: true } },
+    },
   });
   if (!activity) return;
 
-  const teams = [...activity.event.teams].sort((a, b) => {
+  const teams = [...playingTeams(activity.event.teams, activity)].sort((a, b) => {
     const seedA = a.seed ?? Number.MAX_SAFE_INTEGER;
     const seedB = b.seed ?? Number.MAX_SAFE_INTEGER;
     if (seedA !== seedB) return seedA - seedB;

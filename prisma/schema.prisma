@@ -53,6 +53,9 @@ model Team {
   matchesWon Match[] @relation("MatchWinner")
   scores     Score[]
 
+  // games this team is sitting out (see Activity.excludedTeams)
+  excludedFrom Activity[] @relation("ActivityExcludedTeams")
+
   @@index([eventId])
 }
 
@@ -72,6 +75,10 @@ model Activity {
 
   // used by WEIGHTED_SCORE
   categories Category[]
+
+  // Teams left out of this game. Every team in the event plays unless
+  // it's listed here, so teams added later are included automatically.
+  excludedTeams Team[] @relation("ActivityExcludedTeams")
 
   @@index([eventId])
 }

@@ -89,6 +89,9 @@ src/app/                   pages and routes
   `ELIMINATION`, `ROUND_ROBIN`, or `WEIGHTED_SCORE`
 - **Match** — used by elimination/round-robin activities; round + position
   + two teams + scores + winner
+- Every team plays every game unless it's unticked under "Teams in this
+  game" (stored as `Activity.excludedTeams`). A team can't be removed
+  from the event while it's in a generated bracket or schedule.
 - **Category** / **Score** — used by weighted-score activities; each
   category has a weight, each team gets a raw score per category
 

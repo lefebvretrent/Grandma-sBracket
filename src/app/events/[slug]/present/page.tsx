@@ -19,6 +19,7 @@ export default async function PresentPage({
       activities: {
         include: {
           matches: true,
+          excludedTeams: { select: { id: true } },
           placementPoints: true,
           categories: { include: { scores: true } },
         },

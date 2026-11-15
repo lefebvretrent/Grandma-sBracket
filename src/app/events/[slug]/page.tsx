@@ -13,6 +13,7 @@ import {
 } from "@/lib/actions";
 import { canEdit } from "@/lib/permissions";
 import { SubmitButton } from "@/components/submit-button";
+import { RemoveTeamForm } from "@/components/remove-team-form";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { Input } from "@/components/ui/input";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
@@ -231,11 +232,10 @@ export default async function EventPage({
                           </p>
                         )}
                       </div>
-                      <form action={deleteTeamAction}>
-                        <SubmitButton variant="ghost" size="sm">
-                          Remove
-                        </SubmitButton>
-                      </form>
+                      <RemoveTeamForm
+                        teamName={team.name}
+                        action={deleteTeamAction}
+                      />
                     </li>
                   );
                 })}
