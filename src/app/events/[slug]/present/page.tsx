@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { computeStandings } from "@/lib/standings";
+import { computeStandings, standingsRank } from "@/lib/standings";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 
 export const dynamic = "force-dynamic";
@@ -54,8 +54,7 @@ export default async function PresentPage({
       ) : (
         <div className="w-full max-w-3xl mt-10 flex flex-col gap-4">
           {rows.map((row) => {
-            const rank =
-              1 + rows.filter((r) => r.totalPoints > row.totalPoints).length;
+            const rank = standingsRank(rows, row);
             const isLeader = rank === 1 && row.totalPoints > 0;
             return (
               <div
