@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { QrCodeToggle } from "@/components/qr-code";
 import {
   Card,
   CardHeader,
@@ -55,6 +56,10 @@ export function EventCodeCard({ code }: { code: string }) {
         >
           {copied === "link" ? "Copied!" : "Copy link"}
         </Button>
+        <QrCodeToggle
+          getText={() => `${window.location.origin}/events/${code}`}
+          caption="Scan to open this event. Viewers can follow along but can't edit."
+        />
       </CardContent>
     </Card>
   );
