@@ -25,6 +25,7 @@ import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { MatchCard } from "@/components/bracket/match-card";
 import { BracketColumns } from "@/components/bracket/bracket-columns";
+import { UpNext } from "@/components/bracket/up-next";
 import { Input } from "@/components/ui/input";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import {
@@ -144,6 +145,25 @@ export default async function ActivityPage({
   );
   const wbRounds = groupByRound(wbMatches);
   const lbRounds = groupByRound(lbMatches);
+
+  // Matches with both teams in place and no result yet (winners
+  // bracket first): the "Up next" list for an elimination game.
+  const upNext =
+    activity.format === "ELIMINATION"
+      ? [...wbMatches, ...lbMatches, ...gfMatches]
+          .filter((m) => !m.isBye && m.teamAId && m.teamBId && !m.winnerId)
+          .map((match) => ({
+            match,
+            label:
+              match.bracket === "WINNERS"
+                ? `Winners · ${wbRoundLabel(match.round, wbRounds.size)}`
+                : match.bracket === "LOSERS"
+                  ? lbRoundLabel(match.round, lbRounds.size)
+                  : match.round === 1
+                    ? "Grand Final"
+                    : "Grand Final — Reset",
+          }))
+      : [];
 
   // --- Round robin data ---
   const generateRoundRobinAction = generateRoundRobin.bind(
@@ -592,6 +612,13 @@ export default async function ActivityPage({
             )}
           </>
         )}
+
+        <UpNext
+          items={upNext}
+          slug={slug}
+          activityId={activity.id}
+          isEditor={isEditor}
+        />
 
         {supportsPlacements && (
           <Card>
