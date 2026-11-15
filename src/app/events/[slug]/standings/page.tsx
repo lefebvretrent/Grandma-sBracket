@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { toggleStandingsVisibility } from "@/lib/actions";
 import { canEdit } from "@/lib/permissions";
-import { computeStandings } from "@/lib/standings";
+import { computeStandings, standingsRank } from "@/lib/standings";
 import { SubmitButton } from "@/components/submit-button";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import {
@@ -101,7 +101,7 @@ export default async function StandingsPage({
               <CardDescription>
                 {scorableActivities.length === 0
                   ? "Add a game to start earning points."
-                  : "Points earned from 1st/2nd/3rd place finishes across every game."}
+                  : "Points earned from 1st/2nd/3rd place finishes across every game. Ties go to the team that scored the most points overall."}
               </CardDescription>
             </CardHeader>
             <CardContent className="overflow-x-auto">
@@ -123,6 +123,12 @@ export default async function StandingsPage({
                           {a.name}
                         </th>
                       ))}
+                      <th
+                        className="py-2 px-2 font-medium text-center"
+                        title="Total points scored across every game. Breaks ties."
+                      >
+                        Scored
+                      </th>
                       <th className="py-2 pl-4 font-medium text-right">
                         Total
                       </th>
@@ -130,10 +136,7 @@ export default async function StandingsPage({
                   </thead>
                   <tbody>
                     {rows.map((row) => {
-                      const rank =
-                        1 +
-                        rows.filter((r) => r.totalPoints > row.totalPoints)
-                          .length;
+                      const rank = standingsRank(rows, row);
                       return (
                         <tr
                           key={row.teamId}
@@ -155,6 +158,9 @@ export default async function StandingsPage({
                               {row.byActivity.get(a.id) ?? "—"}
                             </td>
                           ))}
+                          <td className="py-2 px-2 text-center text-stone-500">
+                            {Number(row.pointsScored.toFixed(1))}
+                          </td>
                           <td className="py-2 pl-4 text-right font-semibold text-stone-900">
                             {row.totalPoints}
                           </td>

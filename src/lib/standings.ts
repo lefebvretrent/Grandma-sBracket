@@ -1,5 +1,8 @@
 import type { Match } from "@prisma/client";
-import { computeWeightedPlacements } from "@/lib/weighted-score";
+import {
+  computeWeightedPlacements,
+  computeWeightedResults,
+} from "@/lib/weighted-score";
 import { computeRoundRobinPlacements } from "@/lib/round-robin";
 import { playingTeams } from "@/lib/participants";
 
@@ -54,8 +57,28 @@ export type StandingsRow = {
   teamId: string;
   teamName: string;
   totalPoints: number;
+  // Tiebreaker: everything this team actually scored across all games
+  // (match scores in brackets and round robins, weighted totals in
+  // judged games). Only used to separate teams level on totalPoints.
+  pointsScored: number;
   byActivity: Map<string, number>; // activityId -> points earned
 };
+
+// Where a team sits on the leaderboard: 1 + the number of teams strictly
+// ahead of it. A team is ahead if it has more standings points, or the
+// same standings points and more points scored. Teams level on both
+// still share a rank.
+export function standingsRank(rows: StandingsRow[], row: StandingsRow) {
+  return (
+    1 +
+    rows.filter(
+      (r) =>
+        r.totalPoints > row.totalPoints ||
+        (r.totalPoints === row.totalPoints &&
+          r.pointsScored > row.pointsScored)
+    ).length
+  );
+}
 
 type ActivityForStandings = {
   id: string;
@@ -75,14 +98,20 @@ type ActivityForStandings = {
 
 // Sums placement points across every activity for every team, sorted
 // highest first. Activities with no decided result yet just contribute
-// zero for everyone.
+// zero for everyone. Teams level on placement points are ordered by
+// total points scored (see StandingsRow.pointsScored).
 export function computeStandings(
   teams: { id: string; name: string }[],
   activities: ActivityForStandings[]
 ): StandingsRow[] {
   const totals = new Map<string, number>();
   const byActivity = new Map<string, Map<string, number>>();
+  const scored = new Map<string, number>();
   teams.forEach((t) => totals.set(t.id, 0));
+  const addScored = (teamId: string | null, points: number | null) => {
+    if (!teamId || points === null || !totals.has(teamId)) return;
+    scored.set(teamId, (scored.get(teamId) ?? 0) + points);
+  };
 
   for (const activity of activities) {
     const playing = playingTeams(teams, activity);
@@ -103,10 +132,24 @@ export function computeStandings(
         activity.categories,
         flatScores
       );
+      for (const row of computeWeightedResults(
+        teams,
+        activity.categories,
+        flatScores
+      )) {
+        addScored(row.teamId, row.total);
+      }
     } else if (activity.format === "ROUND_ROBIN") {
       placements = computeRoundRobinPlacements(playing, activity.matches);
     } else {
       continue;
+    }
+
+    if (activity.format !== "WEIGHTED_SCORE") {
+      for (const match of activity.matches) {
+        addScored(match.teamAId, match.scoreA);
+        addScored(match.teamBId, match.scoreB);
+      }
     }
 
     const pointsByPlacement = new Map(
@@ -127,7 +170,13 @@ export function computeStandings(
       teamId: team.id,
       teamName: team.name,
       totalPoints: totals.get(team.id) ?? 0,
+      pointsScored: scored.get(team.id) ?? 0,
       byActivity: byActivity.get(team.id) ?? new Map<string, number>(),
     }))
-    .sort((a, b) => b.totalPoints - a.totalPoints);
+    .sort(
+      (a, b) =>
+        b.totalPoints - a.totalPoints ||
+        b.pointsScored - a.pointsScored ||
+        a.teamName.localeCompare(b.teamName)
+    );
 }
